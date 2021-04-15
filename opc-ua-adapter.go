@@ -24,6 +24,7 @@ const (
 var (
 	adapterSettings *opcuaAdapterSettings
 	adapterConfig   *adapter_library.AdapterConfig
+	opcuaClient     *opcua.Client
 )
 
 type opcuaAuthentication struct {
@@ -44,6 +45,11 @@ type opcuaAdapterSettings struct {
 type opcuaMQTTMessage struct {
 	Timestamp string                 `json:"timestamp"`
 	Data      map[string]interface{} `json:"data"`
+}
+
+type opcuaWriteMQTTMessage struct {
+	NodeID string      `json:"node_id"`
+	Value  interface{} `json:"value"`
 }
 
 func main() {
@@ -69,7 +75,7 @@ func main() {
 	}
 
 	// initialize OPC UA connection
-	opcuaClient := initializeOPCUA()
+	opcuaClient = initializeOPCUA()
 	defer opcuaClient.Close()
 
 	// start polling of node_ids specified in adapter settings
@@ -98,7 +104,7 @@ func main() {
 		case _ = <-ticker.C:
 			resp, err := opcuaClient.Read(readReq)
 			if err != nil {
-				log.Printf("[Error] Read request failed: %s\n", err.Error())
+				log.Printf("[ERROR] Read request failed: %s\n", err.Error())
 				continue
 			}
 			mqttMessage := opcuaMQTTMessage{
@@ -130,7 +136,41 @@ func main() {
 }
 
 func cbMessageHandler(message *mqttTypes.Publish) {
-	log.Println(string(message.Payload))
+	log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
+	writeReq := opcuaWriteMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &writeReq)
+	if err != nil {
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		return
+	}
+	id, err := ua.ParseNodeID(writeReq.NodeID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to parse OPC UA Node ID: %s\n", err.Error())
+		return
+	}
+	v, err := ua.NewVariant(writeReq.Value)
+	if err != nil {
+		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
+		return
+	}
+	req := &ua.WriteRequest{
+		NodesToWrite: []*ua.WriteValue{
+			&ua.WriteValue{
+				NodeID:      id,
+				AttributeID: ua.AttributeIDValue,
+				Value: &ua.DataValue{
+					EncodingMask: ua.DataValueValue,
+					Value:        v,
+				},
+			},
+		},
+	}
+	resp, err := opcuaClient.Write(req)
+	if err != nil {
+		log.Printf("[ERROR] Failed to write OPC UA tag %s: %s\n", writeReq.NodeID, err.Error())
+		return
+	}
+	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
 }
 
 func initializeOPCUA() *opcua.Client {
