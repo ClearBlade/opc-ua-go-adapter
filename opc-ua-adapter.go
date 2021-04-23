@@ -105,7 +105,7 @@ func main() {
 			resp, err := opcuaClient.Read(readReq)
 			if err != nil {
 				log.Printf("[ERROR] Read request failed: %s\n", err.Error())
-				continue
+				break
 			}
 			mqttMessage := opcuaMQTTMessage{
 				Data: make(map[string]interface{}),
@@ -120,6 +120,7 @@ func main() {
 			}
 			if len(mqttMessage.Data) == 0 {
 				log.Println("[IFNO] No data received, nothing to publish")
+				continue
 			}
 			b, err := json.Marshal(mqttMessage)
 			if err != nil {
@@ -183,7 +184,7 @@ func initializeOPCUA() *opcua.Client {
 	opcuaOpts := []opcua.Option{}
 
 	// get a list of endpoints for target server
-	endpoints, err := opcua.GetEndpoints(adapterSettings.EndpointURL)
+	endpoints, err := opcua.GetEndpoints(context.Background(), adapterSettings.EndpointURL)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to get OPC UA Server endpoints: %s\n", err.Error())
 	}
@@ -257,6 +258,8 @@ func initializeOPCUA() *opcua.Client {
 	}
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
+
+	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
 
 	ctx := context.Background()
 

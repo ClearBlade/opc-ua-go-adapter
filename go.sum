@@ -8,6 +8,8 @@ github.com/clearblade/paho.mqtt.golang v1.1.1 h1:S+F3zt3EuskNZvrP4NTgtH1gbY/gvz8
 github.com/clearblade/paho.mqtt.golang v1.1.1/go.mod h1:rpDRqEw2Q7epfQYfcHwkHDHSzNzPB+BYO8zn7cGHsWo=
 github.com/gopcua/opcua v0.1.13 h1:UP746MKRFNbv+CQGfrPwgH7rGxOlSGzVu9ieZdcox4E=
 github.com/gopcua/opcua v0.1.13/go.mod h1:a6QH4F9XeODklCmWuvaOdL8v9H0d73CEKUHWVZLQyE8=
+github.com/gopcua/opcua v0.2.0-rc2 h1:o2FcG6fMcaCr0dvJgo+mkp5KaTyMejfqPxPqG6pSjLc=
+github.com/gopcua/opcua v0.2.0-rc2/go.mod h1:a6QH4F9XeODklCmWuvaOdL8v9H0d73CEKUHWVZLQyE8=
 github.com/hashicorp/logutils v1.0.0 h1:dLEQVugN8vlakKOUE3ihGLTZJRB4j+M2cdTm/ORI65Y=
 github.com/hashicorp/logutils v1.0.0/go.mod h1:QIAnNjmIWmVIIkWDTG1z5v++HQmx9WQRO+LraFDTW64=
 github.com/pascaldekloe/goe v0.1.0/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
