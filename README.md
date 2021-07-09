@@ -96,7 +96,7 @@ The OPC UA adapter will subscribe to a specific topic in order to handle OPC UA 
 ```
 
 ## Starting the adapter
-This adapter is built using the [adapter-go-library]() which allows for multiple options for starting the adapter, including CLI flags and environment variables. It is recommended to use a device service account for authentication with this adapter. See the below chart for available start options as well as their defaults.
+This adapter is built using the [adapter-go-library](https://github.com/ClearBlade/adapter-go-library) which allows for multiple options for starting the adapter, including CLI flags and environment variables. It is recommended to use a device service account for authentication with this adapter. See the below chart for available start options as well as their defaults.
 
 All ClearBlade Adapters require a certain set of System specific variables to start and connect with the ClearBlade Platform/Edge. This library allows these to be passed in either by command line arguments, or environment variables. Note that command line arguments take precedence over environment variables.
 
