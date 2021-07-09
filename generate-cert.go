@@ -58,7 +58,7 @@ func generateCert(host string, rsaBits int, certFile, keyFile string) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"Gopcua Test Client"},
+			Organization: []string{"ClearBlade opc-ua-go-adapter"},
 		},
 		NotBefore: notBefore,
 		NotAfter:  notAfter,
@@ -85,30 +85,34 @@ func generateCert(host string, rsaBits int, certFile, keyFile string) {
 		log.Fatalf("Failed to create certificate: %s", err)
 	}
 
-	certOut, err := os.Create(certFile)
-	if err != nil {
-		log.Fatalf("failed to open %s for writing: %s", certFile, err)
+	if _, err = os.Stat(certFile); os.IsNotExist(err) {
+		certOut, err := os.Create(certFile)
+		if err != nil {
+			log.Fatalf("failed to open %s for writing: %s", certFile, err)
+		}
+		if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
+			log.Fatalf("failed to write data to %s: %s", certFile, err)
+		}
+		if err := certOut.Close(); err != nil {
+			log.Fatalf("error closing %s: %s", certFile, err)
+		}
+		log.Printf("wrote %s\n", certFile)
 	}
-	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		log.Fatalf("failed to write data to %s: %s", certFile, err)
-	}
-	if err := certOut.Close(); err != nil {
-		log.Fatalf("error closing %s: %s", certFile, err)
-	}
-	log.Printf("wrote %s\n", certFile)
 
-	keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Printf("failed to open %s for writing: %s", keyFile, err)
-		return
+	if _, err = os.Stat(keyFile); os.IsNotExist(err) {
+		keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			log.Printf("failed to open %s for writing: %s", keyFile, err)
+			return
+		}
+		if err := pem.Encode(keyOut, pemBlockForKey(priv)); err != nil {
+			log.Fatalf("failed to write data to %s: %s", keyFile, err)
+		}
+		if err := keyOut.Close(); err != nil {
+			log.Fatalf("error closing %s: %s", keyFile, err)
+		}
+		log.Printf("wrote %s\n", keyFile)
 	}
-	if err := pem.Encode(keyOut, pemBlockForKey(priv)); err != nil {
-		log.Fatalf("failed to write data to %s: %s", keyFile, err)
-	}
-	if err := keyOut.Close(); err != nil {
-		log.Fatalf("error closing %s: %s", keyFile, err)
-	}
-	log.Printf("wrote %s\n", keyFile)
 
 }
 
