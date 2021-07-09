@@ -199,7 +199,7 @@ func initializeOPCUA() *opcua.Client {
 		authMode = ua.UserTokenTypeUserName
 		opcuaOpts = append(opcuaOpts, opcua.AuthUsername(adapterSettings.Authentication.Username, adapterSettings.Authentication.Password))
 	case "certificate":
-		log.Fatalln("[FATAL] Anonymous auth type not implemented yet")
+		log.Fatalln("[FATAL] Certificate auth type not implemented yet")
 	default:
 		log.Fatalf("[FATAL] Invalid auth type: %s\n", adapterSettings.Authentication.Type)
 	}
