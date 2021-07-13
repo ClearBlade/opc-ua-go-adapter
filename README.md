@@ -65,11 +65,15 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 | `Basic256SHA256` |
 
 ## MQTT Topic Structure
-The OPC UA adapter will subscribe to a specific topic in order to handle OPC UA write requests. Additionally, the adapter will publish messages to MQTT topics for read results of the provided tags/node ids. The topic structures utilized are as follows:
+The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA requests. Additionally, the adapter will publish messages to MQTT topics for read results of the provided tags/node ids. The topic structures utilized are as follows:
 
- * OPC UA Read Results: {__TOPIC ROOT__}/read
+ * OPC UA Read Results: {__TOPIC ROOT__}/read/response
  * OPC UA Write Request: {__TOPIC ROOT__}/write
-
+ * OPC UA Write Response: {__TOPIC ROOT__}/write/response
+ * OPC UA Method Request: {__TOPIC ROOT__}/method
+ * OPC UA Method Response: {__TOPIC ROOT__}/method/response
+ * OPC UA Subscribe Request: {__TOPIC ROOT__}/subscribe - create, publish, and delete are the only supported services in the opcua library
+ * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
 ## MQTT Message Structure
 
 ### OPC UA Read Results Payload Format
@@ -94,6 +98,65 @@ The OPC UA adapter will subscribe to a specific topic in order to handle OPC UA 
     "value": 25 // can be string or int/float
 }
 ```
+
+### OPC UA Write Response Payload Format
+```json
+{
+    "node_id": "ns=3;i=1001",
+    "timestamp": "", //ISO formatted timestamp
+    "success": true|false,
+    "status_code": 0, //Integer
+    "error_message": "",
+    "results": [0] //Array of status codes (integers)
+}
+```
+
+### OPC UA Method Request Payload Format
+```json
+{
+    "object_id": "ns=3;i=1001",
+    "method_id": "", 
+    "arguments":[] //Array of arguments
+}
+```
+
+### OPC UA Method Response Payload Format
+```json
+{
+    "object_id": "ns=3;i=1001",
+    "method_id": 25,
+    "timestamp": "", //ISO formatted timestamp 
+    "success": true|false,
+    "status_code": 0, //Integer
+    "error_message": "",
+    "arguments": [],
+    "values": []
+}
+```
+
+### OPC UA Subscribe Request Payload Format
+```json
+{
+    "object_id": "ns=3;i=1001",
+    "method_id": "", 
+    "arguments":[] //Array of arguments
+}
+```
+
+### OPC UA Subscribe Response Payload Format
+```json
+{
+    "object_id": "ns=3;i=1001",
+    "method_id": 25,
+    "timestamp": "", //ISO formatted timestamp 
+    "success": true|false,
+    "status_code": 0, //Integer
+    "error_message": "",
+    "arguments": [],
+    "values": []
+}
+```
+
 
 ## Starting the adapter
 This adapter is built using the [adapter-go-library](https://github.com/ClearBlade/adapter-go-library) which allows for multiple options for starting the adapter, including CLI flags and environment variables. It is recommended to use a device service account for authentication with this adapter. See the below chart for available start options as well as their defaults.

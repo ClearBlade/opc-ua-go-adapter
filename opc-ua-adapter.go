@@ -16,41 +16,31 @@ import (
 	"github.com/gopcua/opcua/ua"
 )
 
+//TODO
+// Implement subscriptions
+//	create - in progress
+//	publish - Needs research. I believe this refers to a "republish" request
+//
+// Verify response code for write and method
+// Implement alarms
+//
+
 const (
-	adapterName = "opc-ua-adapter"
-	appuri      = "urn:cb-opc-ua-adapter:client"
+	adapterName         = "opc-ua-adapter"
+	appuri              = "urn:cb-opc-ua-adapter:client"
+	readTopic           = "read"
+	writeTopic          = "write"
+	methodTopic         = "method"
+	subscribeTopic      = "subscribe"
+	javascriptISOString = "2006-01-02T15:04:05.000Z07:00"
 )
 
 var (
-	adapterSettings *opcuaAdapterSettings
-	adapterConfig   *adapter_library.AdapterConfig
-	opcuaClient     *opcua.Client
+	adapterSettings   *opcuaAdapterSettings
+	adapterConfig     *adapter_library.AdapterConfig
+	opcuaClient       *opcua.Client
+	openSubscriptions = make(map[uint32]*opcua.Subscription)
 )
-
-type opcuaAuthentication struct {
-	Type     string `json:"type"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type opcuaAdapterSettings struct {
-	EndpointURL    string              `json:"endpoint_url"`
-	NodeIDs        []string            `json:"node_ids"`
-	PollInterval   float64             `json:"poll_interval"`
-	Authentication opcuaAuthentication `json:"authentication"`
-	SecurityMode   string              `json:"security_mode"`
-	SecurityPolicy string              `json:"security_policy"`
-}
-
-type opcuaMQTTMessage struct {
-	Timestamp string                 `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
-}
-
-type opcuaWriteMQTTMessage struct {
-	NodeID string      `json:"node_id"`
-	Value  interface{} `json:"value"`
-}
 
 func main() {
 	err := adapter_library.ParseArguments(adapterName)
@@ -69,7 +59,16 @@ func main() {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
-	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/write", cbMessageHandler)
+	//
+	// The adapter will support the following topics:
+	//
+	//	write
+	//	method
+	//  subscribe
+	//  alarm???
+	//
+
+	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/+", cbMessageHandler)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
 	}
@@ -107,7 +106,7 @@ func main() {
 				log.Printf("[ERROR] Read request failed: %s\n", err.Error())
 				break
 			}
-			mqttMessage := opcuaMQTTMessage{
+			mqttMessage := opcuaReadResponseMQTTMessage{
 				Data: make(map[string]interface{}),
 			}
 			for idx, result := range resp.Results {
@@ -122,56 +121,10 @@ func main() {
 				log.Println("[IFNO] No data received, nothing to publish")
 				continue
 			}
-			b, err := json.Marshal(mqttMessage)
-			if err != nil {
-				log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
-				continue
-			}
-			err = adapter_library.Publish(adapterConfig.TopicRoot+"/read", b)
-			if err != nil {
-				log.Printf("[ERROR] Failed to publish MQTT message: %s\n", err.Error())
-			}
+
+			publishJson(adapterConfig.TopicRoot+"/"+readTopic, mqttMessage)
 		}
 	}
-
-}
-
-func cbMessageHandler(message *mqttTypes.Publish) {
-	log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
-	writeReq := opcuaWriteMQTTMessage{}
-	err := json.Unmarshal(message.Payload, &writeReq)
-	if err != nil {
-		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
-		return
-	}
-	id, err := ua.ParseNodeID(writeReq.NodeID)
-	if err != nil {
-		log.Printf("[ERROR] Failed to parse OPC UA Node ID: %s\n", err.Error())
-		return
-	}
-	v, err := ua.NewVariant(writeReq.Value)
-	if err != nil {
-		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
-		return
-	}
-	req := &ua.WriteRequest{
-		NodesToWrite: []*ua.WriteValue{
-			&ua.WriteValue{
-				NodeID:      id,
-				AttributeID: ua.AttributeIDValue,
-				Value: &ua.DataValue{
-					EncodingMask: ua.DataValueValue,
-					Value:        v,
-				},
-			},
-		},
-	}
-	resp, err := opcuaClient.Write(req)
-	if err != nil {
-		log.Printf("[ERROR] Failed to write OPC UA tag %s: %s\n", writeReq.NodeID, err.Error())
-		return
-	}
-	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
 }
 
 func initializeOPCUA() *opcua.Client {
@@ -258,7 +211,6 @@ func initializeOPCUA() *opcua.Client {
 	}
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
-
 	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
 
 	ctx := context.Background()
@@ -269,5 +221,344 @@ func initializeOPCUA() *opcua.Client {
 		log.Fatalf("[FATAL] Failed to connect to OPC UA Server: %s\n", err.Error())
 	}
 	return c
+}
 
+func cbMessageHandler(message *mqttTypes.Publish) {
+	//Determine the type of request that was received
+	if strings.HasSuffix(message.Topic.Whole, writeTopic) {
+		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
+		go handleWriteRequest(message)
+	} else if strings.HasSuffix(message.Topic.Whole, methodTopic) {
+		log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
+		go handleMethodRequest(message)
+	} else if strings.HasSuffix(message.Topic.Whole, subscribeTopic) {
+		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
+		go handleSubscriptionRequest(message)
+	} else {
+		log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+	}
+}
+
+//OPC UA Attribute Service Set - write
+func handleWriteRequest(message *mqttTypes.Publish) {
+	writeReq := opcuaWriteRequestMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &writeReq)
+	if err != nil {
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		return
+	}
+	id, err := ua.ParseNodeID(writeReq.NodeID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to parse OPC UA Node ID: %s\n", err.Error())
+		return
+	}
+	v, err := ua.NewVariant(writeReq.Value)
+	if err != nil {
+		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
+		return
+	}
+	req := &ua.WriteRequest{
+		NodesToWrite: []*ua.WriteValue{
+			&ua.WriteValue{
+				NodeID:      id,
+				AttributeID: ua.AttributeIDValue,
+				Value: &ua.DataValue{
+					EncodingMask: ua.DataValueValue,
+					Value:        v,
+				},
+			},
+		},
+	}
+	resp, err := opcuaClient.Write(req)
+
+	mqttResp := opcuaWriteResponseMQTTMessage{
+		NodeID:       writeReq.NodeID,
+		Timestamp:    resp.ResponseHeader.Timestamp.Format(time.RFC3339),
+		Success:      true,
+		StatusCode:   uint32(resp.ResponseHeader.ServiceResult),
+		ErrorMessage: "",
+		Results:      resp.Results,
+	}
+
+	if err != nil {
+		log.Printf("[ERROR] Failed to write OPC UA tag %s: %s\n", writeReq.NodeID, err.Error())
+		mqttResp.Success = false
+		mqttResp.ErrorMessage = err.Error()
+	}
+	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
+
+	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", mqttResp)
+}
+
+//OPC UA Method Service Set
+func handleMethodRequest(message *mqttTypes.Publish) {
+	methodReq := opcuaMethodRequestMQTTMessage{}
+
+	//Create and initialize the response
+	mqttResp := opcuaMethodResponseMQTTMessage{
+		ObjectID:       "",
+		MethodID:       "",
+		Timestamp:      "",
+		Success:        true,
+		StatusCode:     0,
+		ErrorMessage:   "",
+		InputArguments: []interface{}{},
+		OutputValues:   []interface{}{},
+	}
+
+	//Unmarshal the incoming JSON
+	err := json.Unmarshal(message.Payload, &methodReq)
+	if err != nil {
+		log.Printf("[ERROR] handleMethodRequest - Failed to unmarshal method request JSON: %s\n", err.Error())
+		returnMethodError(err.Error(), &mqttResp)
+		return
+	}
+
+	//Since we were able to parse the input, add fields to the response
+	mqttResp.ObjectID = methodReq.ObjectID
+	mqttResp.MethodID = methodReq.MethodID
+	mqttResp.InputArguments = methodReq.InputArguments
+
+	//Parse the incoming object ID
+	objId, err := ua.ParseNodeID(methodReq.ObjectID)
+	if err != nil {
+		log.Printf("[ERROR] handleMethodRequest - Failed to parse OPC UA Object ID: %s\n", err.Error())
+		returnMethodError(err.Error(), &mqttResp)
+		return
+	}
+
+	//Parse the incoming method ID
+	methodId, err := ua.ParseNodeID(methodReq.MethodID)
+	if err != nil {
+		log.Printf("[ERROR] handleMethodRequest - Failed to parse OPC UA Method ID: %s\n", err.Error())
+		returnMethodError(err.Error(), &mqttResp)
+		return
+	}
+
+	//Populate the opcua request structure
+	req := &ua.CallMethodRequest{
+		ObjectID:       objId,
+		MethodID:       methodId,
+		InputArguments: []*ua.Variant{},
+	}
+
+	//We need to loop through the input arguments and create variants for each one
+	for _, element := range methodReq.InputArguments {
+		req.InputArguments = append(req.InputArguments, ua.MustVariant(element))
+	}
+
+	//Invoke the opcua method
+	resp, err := opcuaClient.Call(req)
+
+	//Populate the MQTT response and publish to the platform
+	mqttResp.Timestamp = time.Now().Format(javascriptISOString)
+	mqttResp.StatusCode = uint32(resp.StatusCode)
+
+	//Check for errors while invoking the method
+	if err != nil {
+		log.Printf("[ERROR] handleMethodRequest - Error invoking OPC UA method: %s\n", err.Error())
+		returnMethodError(err.Error(), &mqttResp)
+		return
+	}
+
+	//Check for bad status codes
+	if resp.StatusCode != ua.StatusOK {
+		log.Printf("[ERROR] handleMethodRequest - Bad status code returned invoking OPC UA method: %s\n", resp.StatusCode)
+		returnMethodError("Bad status code returned", &mqttResp)
+		return
+	}
+
+	//We need to loop through the input arguments and create variants for each one
+	for _, element := range resp.OutputArguments {
+		mqttResp.OutputValues = append(mqttResp.OutputValues, element.Value())
+	}
+
+	//Publish the response to the platform
+	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", &mqttResp)
+}
+
+//OPC UA Subscription Service Set
+func handleSubscriptionRequest(message *mqttTypes.Publish) {
+	subReq := opcuaSubscriptionRequestMQTTMessage{}
+
+	//Unmarshal the incoming JSON
+	err := json.Unmarshal(message.Payload, &subReq)
+	if err != nil {
+		log.Printf("[ERROR] handleSubscriptionRequest - Failed to unmarshal subscription request JSON: %s\n", err.Error())
+		returnSubscribeError(err.Error(), &opcuaSubscriptionResponseMQTTMessage{})
+		return
+	}
+
+	switch strings.ToLower(string(subReq.RequestType)) {
+	case string(SubscriptionCreate):
+		handleSubscriptionCreate(&subReq)
+	// TODO - Need to research what publish is for. I believe it is a "republish" request
+	// case string(SubscriptionPublish):
+	// 	handleSubscriptionPublish(&subReq)
+	case string(SubscriptionDelete):
+		handleSubscriptionDelete(&subReq)
+	default:
+		log.Printf("[ERROR] Invalid subscription request type: %s\n", subReq.RequestType)
+		returnSubscribeError("Invalid subscription request type", &opcuaSubscriptionResponseMQTTMessage{
+			NodeID:      subReq.NodeID,
+			RequestType: subReq.RequestType,
+		})
+	}
+}
+
+//OPC UA Subscription Service Set - Create
+func handleSubscriptionCreate(subReq *opcuaSubscriptionRequestMQTTMessage) {
+	parms := (*(subReq.RequestParams)).(opcuaSubscriptionCreateParmsMQTTMessage)
+	subParms := &opcua.SubscriptionParameters{}
+
+	if parms.PublishInterval != nil {
+		subParms.Interval = time.Duration(uint64(*parms.PublishInterval)) * time.Millisecond
+	}
+
+	if parms.LifetimeCount != nil {
+		subParms.LifetimeCount = *parms.LifetimeCount
+	}
+
+	if parms.MaxKeepAliveCount != nil {
+		subParms.MaxKeepAliveCount = *parms.MaxKeepAliveCount
+	}
+
+	if parms.MaxNotificationsPerPublish != nil {
+		subParms.MaxNotificationsPerPublish = *parms.MaxNotificationsPerPublish
+	}
+
+	if parms.Priority != nil {
+		subParms.Priority = *parms.Priority
+	}
+
+	//Create the subscription in a goroutine since we could have more than one subscription created
+	go createSubscription(subReq, subParms)
+
+}
+
+func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *opcua.SubscriptionParameters) {
+	//https://medium.com/vacatronics/how-to-connect-with-opc-ua-using-go-5d7fdcac6217
+
+	resp := opcuaSubscriptionResponseMQTTMessage{
+		NodeID:      subReq.NodeID,
+		RequestType: SubscriptionCreate,
+	}
+
+	notifyCh := make(chan *opcua.PublishNotificationData)
+
+	sub, err := opcuaClient.Subscribe(subParms, notifyCh)
+	if err != nil {
+		log.Printf("[ERROR] createSubscription - Error occurred while subscribing: %s\n", err.Error())
+		returnSubscribeError(err.Error(), &resp)
+	}
+
+	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
+	openSubscriptions[sub.SubscriptionID] = sub
+
+	defer sub.Cancel()
+	log.Printf("Created subscription with id %v", sub.SubscriptionID)
+
+	//TODO - Now that we have a subscription, we need to add the monitored items
+
+	//TODO
+	//
+	// Determine how to exit, do we need to use a context or do we write to the existing channel
+	//
+	// read from subscription's notification channel until ctx is cancelled
+	// for {
+	// 	select {
+	// 	case <-ctx.Done():
+	// 		return
+	// 	case res := <-notifyCh:
+	// 		if res.Error != nil {
+	// 			log.Print(res.Error)
+	// 			continue
+	// 		}
+
+	// 		switch x := res.Value.(type) {
+	// 		case *ua.DataChangeNotification:
+	// 			for _, item := range x.MonitoredItems {
+	// 				data := item.Value.Value.Value()
+	// 				log.Printf("MonitoredItem with client handle %v = %v", item.ClientHandle, data)
+	// 			}
+
+	// 		case *ua.EventNotificationList:
+	// 			for _, item := range x.Events {
+	// 				log.Printf("Event for client handle: %v\n", item.ClientHandle)
+	// 				for i, field := range item.EventFields {
+	// 					log.Printf("%v: %v of Type: %T", eventFieldNames[i], field.Value(), field.Value())
+	// 				}
+	// 				log.Println()
+	// 			}
+
+	// 		default:
+	// 			log.Printf("what's this publish result? %T", res.Value)
+	// 		}
+	// 	}
+	// }
+}
+
+// OPC UA Subscription Service Set - Publish
+// func handleSubscriptionPublish(subReq *opcuaSubscriptionRequestMQTTMessage) {
+// TODO - We need to figure out how publish works with a client. It would make sense that publish
+// is only a server function.
+//
+// }
+
+//OPC UA Subscription Service Set - Delete
+func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
+	parms := (*(subReq.RequestParams)).(opcuaSubscriptionDeleteParmsMQTTMessage)
+
+	resp := opcuaSubscriptionResponseMQTTMessage{
+		NodeID:       subReq.NodeID,
+		RequestType:  SubscriptionDelete,
+		Timestamp:    time.Now().Format(javascriptISOString),
+		Success:      true,
+		StatusCode:   0,
+		ErrorMessage: "",
+	}
+
+	//Get the open subscription from the map in storage, using the incoming subscription ID
+	err := openSubscriptions[parms.SubscriptionID].Cancel()
+	if err != nil {
+		log.Printf("[ERROR] handleSubscriptionDelete - Error occurred while deleting subscription: %s\n", err.Error())
+
+		//Publish error to platform
+		returnSubscribeError(err.Error(), &resp)
+	}
+
+	//Publish response to platform
+	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
+
+	//Delete open subscription from map
+	delete(openSubscriptions, parms.SubscriptionID)
+}
+
+func returnMethodError(errMsg string, resp *opcuaMethodResponseMQTTMessage) {
+	resp.Success = false
+	resp.ErrorMessage = errMsg
+	resp.Timestamp = time.Now().Format(javascriptISOString)
+	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", resp)
+}
+
+func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMessage) {
+	resp.Success = false
+	resp.ErrorMessage = errMsg
+	resp.Timestamp = time.Now().Format(javascriptISOString)
+	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
+}
+
+// Publishes data to a topic
+func publishJson(topic string, data interface{}) {
+	b, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return
+	}
+
+	log.Printf("[DEBUG] publish - Publishing to topic %s\n", topic)
+	err = adapter_library.Publish(topic, b)
+	if err != nil {
+		log.Printf("[ERROR] Failed to publish MQTT message to topic %s: %s\n", topic, err.Error())
+	}
 }
