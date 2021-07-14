@@ -144,7 +144,7 @@ type opcuaMonitoredItemNotificationMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
 	ClientHandle uint32      `json:"client_handle"`
-	value        interface{} `json:"value"`
+	Value        interface{} `json:"value"`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {

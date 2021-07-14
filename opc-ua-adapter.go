@@ -542,7 +542,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					//Get the NodeId from the clientHandleRequestMap
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
-						value:  item.Value.Value,
+						Value:  item.Value.Value,
 					})
 				}
 
