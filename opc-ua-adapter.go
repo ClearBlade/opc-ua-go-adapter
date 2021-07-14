@@ -22,7 +22,6 @@ import (
 //	create - in progress
 //	publish - Needs research. I believe this refers to a "republish" request
 //
-// Verify response code for write and method
 // Implement alarms
 //
 
@@ -33,15 +32,17 @@ const (
 	writeTopic          = "write"
 	methodTopic         = "method"
 	subscribeTopic      = "subscribe"
+	publishTopic        = "publish"
 	javascriptISOString = "2006-01-02T15:04:05.000Z07:00"
 )
 
 var (
-	adapterSettings   *opcuaAdapterSettings
-	adapterConfig     *adapter_library.AdapterConfig
-	opcuaClient       *opcua.Client
-	openSubscriptions = make(map[uint32]*opcua.Subscription)
-	clientHandle      uint32
+	adapterSettings        *opcuaAdapterSettings
+	adapterConfig          *adapter_library.AdapterConfig
+	opcuaClient            *opcua.Client
+	openSubscriptions      = make(map[uint32]*opcua.Subscription)
+	clientHandle           uint32
+	clientHandleRequestMap = make(map[uint32]interface{})
 )
 
 func main() {
@@ -62,8 +63,9 @@ func main() {
 	}
 
 	//
-	// The adapter will support the following topics:
+	// The adapter will supports the following opcua operations:
 	//
+	//  read
 	//	write
 	//	method
 	//  subscribe
@@ -124,7 +126,7 @@ func main() {
 				continue
 			}
 
-			publishJson(adapterConfig.TopicRoot+"/"+readTopic, mqttMessage)
+			publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", mqttMessage)
 		}
 	}
 }
@@ -402,7 +404,6 @@ func handleSubscriptionRequest(message *mqttTypes.Publish) {
 	default:
 		log.Printf("[ERROR] Invalid subscription request type: %s\n", subReq.RequestType)
 		returnSubscribeError("Invalid subscription request type", &opcuaSubscriptionResponseMQTTMessage{
-			NodeID:      subReq.NodeID,
 			RequestType: subReq.RequestType,
 		})
 	}
@@ -444,8 +445,12 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	//https://medium.com/vacatronics/how-to-connect-with-opc-ua-using-go-5d7fdcac6217
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
-		NodeID:      subReq.NodeID,
-		RequestType: SubscriptionCreate,
+		RequestType:  SubscriptionCreate,
+		Timestamp:    "",
+		Success:      true,
+		StatusCode:   0,
+		ErrorMessage: "",
+		Results:      []interface{}{},
 	}
 
 	jsonString, _ := json.Marshal(*subReq.RequestParams)
@@ -458,6 +463,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	if err != nil {
 		log.Printf("[ERROR] createSubscription - Error occurred while subscribing: %s\n", err.Error())
 		returnSubscribeError(err.Error(), &resp)
+		return
 	}
 
 	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
@@ -468,41 +474,93 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 	//Now that we have a subscription, we need to add the monitored items
 	var miCreateRequests []*ua.MonitoredItemCreateRequest
-	// TODO - clean this up, just hardcoded some stuff to get it working
-	nodeid, _ := ua.ParseNodeID(subReq.NodeID)
-	//for _, item := range *parms.MonitoredItems {
-	miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeid, ua.AttributeIDValue, getClientHandle()))
-	//}
+	// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
+
+	errors := false
+	for _, item := range *parms.MonitoredItems {
+		nodeId, err := ua.ParseNodeID(item.NodeID)
+		if err != nil {
+			log.Printf("[ERROR] createSubscription - Failed to parse OPC UA Node ID: %s\n", err.Error())
+			errors = true
+			resp.Results = append(resp.Results, opcuaMonitoredItemCreateResultMQTTMessage{
+				NodeID:     item.NodeID,
+				StatusCode: uint32(ua.StatusBadNodeIDInvalid),
+			})
+			continue
+		}
+		miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
+
+		//Add the client handle and request to the map
+		clientHandleRequestMap[clientHandle] = item
+	}
 	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
 	if err != nil {
 		log.Printf("[ERROR] createSubscription - Error occurred while adding monitored items: %s\n", err.Error())
 		returnSubscribeError(err.Error(), &resp)
+		return //TODO - Should we do this? Need to research whether or not a partial success is possible
 	}
+
+	//See if any errors were encountered
 	for _, result := range res.Results {
 		if result.StatusCode != ua.StatusOK {
 			log.Printf("[ERROR] createSubscription - Failed to add monitor item with status code: %d\n", result.StatusCode)
-			returnSubscribeError(fmt.Errorf("Failed to add monitor item with status code: %d", result.StatusCode).Error(), &resp)
+			errors = true
 		}
 	}
 	log.Printf("[INFO] createSubscription - Added all monitored items")
+
+	//Publish create response
+	resp.Timestamp = time.Now().Format(javascriptISOString)
+
+	if errors == true {
+		resp.ErrorMessage = "Failed to add all monitor items, see results"
+		resp.Success = false
+	}
+
+	publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
 
 	for {
 		select {
 		case res := <-notifyCh:
 			if res.Error != nil {
 				log.Printf("[ERROR] createSubscription - Unexpected error onsubscription: %s\n", res.Error.Error())
-				// TODO - should we publish a subscribe error here?
+				returnSubscribeError(fmt.Errorf("Unexpected error onsubscription: %s\n", res.Error.Error()).Error(), &resp)
 				continue
 			}
 			switch x := res.Value.(type) {
 			case *ua.DataChangeNotification:
-				// TODO - need to publish this data via MQTT, but looks like we may need to track client handles to know how to map this to the monitored item/nodeid
-				for _, item := range x.MonitoredItems {
-					log.Printf("[INFO] MonitoredItem with client handle %v=%v", item.ClientHandle, item.Value.Value.Value())
+				resp := opcuaSubscriptionResponseMQTTMessage{
+					RequestType:  SubscriptionPublish,
+					Timestamp:    time.Now().Format(javascriptISOString),
+					Success:      true,
+					StatusCode:   uint32(ua.StatusOK),
+					ErrorMessage: "",
+					Results:      []interface{}{},
 				}
+
+				for _, item := range x.MonitoredItems {
+					//Get the NodeId from the clientHandleRequestMap
+					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
+						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						value:  item.Value.Value,
+					})
+				}
+
+				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
+			//
+			// TODO - Add event code
+			//
+			// case *ua.EventNotificationList:
+			// 	for _, item := range x.Events {
+			// 		log.Printf("Event for client handle: %v\n", item.ClientHandle)
+			// 		for i, field := range item.EventFields {
+			// 			log.Printf("%v: %v of Type: %T", eventFieldNames[i], field.Value(), field.Value())
+			// 		}
+			// 		log.Println()
+			// 	}
 			default:
 				log.Printf("[INFO] createSubscription - Unimplemented response type on subscription: %s\n", res.Value)
-				// TODO - should we publish a subscribe error here?
+				returnSubscribeError("Unimplemented response type on subscription", &resp)
 			}
 		}
 	}
@@ -510,8 +568,9 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 // OPC UA Subscription Service Set - Publish
 // func handleSubscriptionPublish(subReq *opcuaSubscriptionRequestMQTTMessage) {
+//
 // TODO - We need to figure out how publish works with a client. It would make sense that publish
-// is only a server function.
+// is only a server function. This is most likely a "republish" function.
 //
 // }
 
@@ -522,7 +581,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	json.Unmarshal(jsonString, &parms)
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
-		NodeID:       subReq.NodeID,
+		//NodeID:       subReq.NodeID,
 		RequestType:  SubscriptionDelete,
 		Timestamp:    time.Now().Format(javascriptISOString),
 		Success:      true,
@@ -541,6 +600,9 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 
 	//Publish response to platform
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
+
+	//Empty the clientHandleRequestMap
+	clientHandleRequestMap = make(map[uint32]interface{})
 
 	//Delete open subscription from map
 	delete(openSubscriptions, parms.SubscriptionID)

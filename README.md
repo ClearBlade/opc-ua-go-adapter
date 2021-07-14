@@ -64,16 +64,26 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 | `Basic256` | 
 | `Basic256SHA256` |
 
+### Supported OPC UA Operations
+| Security Mode |
+| ---------------- |
+| `read` |
+| `write` | 
+| `method` |
+| `method` |
+
 ## MQTT Topic Structure
-The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA requests. Additionally, the adapter will publish messages to MQTT topics for read results of the provided tags/node ids. The topic structures utilized are as follows:
+The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA operations. Additionally, the adapter will publish messages to MQTT topics for results of the OPC UA operations. The topic structures utilized are as follows:
 
  * OPC UA Read Results: {__TOPIC ROOT__}/read/response
  * OPC UA Write Request: {__TOPIC ROOT__}/write
  * OPC UA Write Response: {__TOPIC ROOT__}/write/response
  * OPC UA Method Request: {__TOPIC ROOT__}/method
  * OPC UA Method Response: {__TOPIC ROOT__}/method/response
- * OPC UA Subscribe Request: {__TOPIC ROOT__}/subscribe - create, publish, and delete are the only supported services in the opcua library
+ * OPC UA Subscribe Request: {__TOPIC ROOT__}/subscribe
+   ** create, publish, and delete are the only supported services in the opcua library being utilized
  * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
+ * OPC UA Publish: {__TOPIC ROOT__}/publish/response
 ## MQTT Message Structure
 
 ### OPC UA Read Results Payload Format
@@ -134,29 +144,71 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Subscribe Request Payload Format
+### OPC UA Subscription Request Payload Format
 ```json
 {
-    "object_id": "ns=3;i=1001",
-    "method_id": "", 
-    "arguments":[] //Array of arguments
+    "request_type": "create|republish|delete", 
+    "request_params": {
+      //One of the following: (see below for schema)
+      //
+      //OPC UA Subscription Create Request
+      //OPC UA Subscription Delete Request
+      //OPC UA Subscription Republish Request
+    },  
+}
+```
+
+### OPC UA Subscription Create Request Payload Format
+```json
+{
+    "publish_interval": ,
+    "lifetime": 25,
+    "keepalive": "", //ISO formatted timestamp 
+    "max_publish_notifications": true|false,
+    "priority": 0, //Integer
+    "items_to_monitor": [
+      {
+        "node_id": "ns=2;i=1001"
+      },
+            {
+        "node_id": "ns=3;i=1001"
+      },
+      ...
+    ],
+}
+```
+
+
+### OPC UA Subscription Delete Request Payload Format
+```json
+{
+    "subscription_id": "the_subscription_id",
 }
 ```
 
 ### OPC UA Subscribe Response Payload Format
 ```json
 {
-    "object_id": "ns=3;i=1001",
-    "method_id": 25,
+    "request_type": "create|publish|delete",
     "timestamp": "", //ISO formatted timestamp 
     "success": true|false,
     "status_code": 0, //Integer
     "error_message": "",
-    "arguments": [],
-    "values": []
+    "results": [ //Will only contain data when request_type = "publish"
+      {
+        "node_id": "ns=2;i=1001",
+        "client_handle": 1,
+        "value": 5
+      },
+      {
+        "node_id": "ns=3;i=1001",
+        "client_handle": 2,
+        "value": "hello"
+      },
+      ...
+    ],
 }
 ```
-
 
 ## Starting the adapter
 This adapter is built using the [adapter-go-library](https://github.com/ClearBlade/adapter-go-library) which allows for multiple options for starting the adapter, including CLI flags and environment variables. It is recommended to use a device service account for authentication with this adapter. See the below chart for available start options as well as their defaults.

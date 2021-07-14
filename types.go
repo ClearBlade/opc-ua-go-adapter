@@ -68,13 +68,14 @@ type opcuaMethodResponseMQTTMessage struct {
 	OutputValues   []interface{} `json:"values"`
 }
 
-type SubscriptionRequestType string
+type SubscriptionOperationType string
 
 // TODO - Add missing subscription request types when they are implemented by github.com/gopcua
 const (
-	SubscriptionCreate  SubscriptionRequestType = "create"
-	SubscriptionPublish SubscriptionRequestType = "publish"
-	SubscriptionDelete  SubscriptionRequestType = "delete"
+	SubscriptionCreate    SubscriptionOperationType = "create"
+	SubscriptionRepublish SubscriptionOperationType = "republish"
+	SubscriptionPublish   SubscriptionOperationType = "publish"
+	SubscriptionDelete    SubscriptionOperationType = "delete"
 )
 
 // https://reference.opcfoundation.org/v104/Core/docs/Part4/5.13.2/
@@ -86,12 +87,12 @@ const (
 // priority - Indicates the relative priority of the Subscription
 //
 type opcuaSubscriptionCreateParmsMQTTMessage struct {
-	PublishInterval            *uint32                          `json:"publish_interval,omitempty"`
-	LifetimeCount              *uint32                          `json:"lifetime,omitempty"`
-	MaxKeepAliveCount          *uint32                          `json:"keepalive,omitempty"`
-	MaxNotificationsPerPublish *uint32                          `json:"max_publish_notifications,omitempty"`
-	Priority                   *uint8                           `json:"priority,omitempty"`
-	MonitoredItems             *[]opcuaMonitoredItemMQTTMessage `json:"items_to_monitor,omitempty"`
+	PublishInterval            *uint32                                `json:"publish_interval,omitempty"`
+	LifetimeCount              *uint32                                `json:"lifetime,omitempty"`
+	MaxKeepAliveCount          *uint32                                `json:"keepalive,omitempty"`
+	MaxNotificationsPerPublish *uint32                                `json:"max_publish_notifications,omitempty"`
+	Priority                   *uint8                                 `json:"priority,omitempty"`
+	MonitoredItems             *[]opcuaMonitoredItemCreateMQTTMessage `json:"items_to_monitor,omitempty"`
 }
 
 //TODO
@@ -108,25 +109,54 @@ type opcuaSubscriptionDeleteParmsMQTTMessage struct {
 	SubscriptionID uint32 `json:"subscription_id"`
 }
 
-type opcuaMonitoredItemMQTTMessage struct {
-	ItemToMonitor        *ua.ReadValueID               `json:"item,omitempty"`
-	MonitoringParameters *ua.MonitoringParameters      `json:"monitor_params,omitempty"`
-	MonitoringMode       ua.MonitoringMode             `json:"monitor_mode,omitempty"`
-	TimestampsToReturn   ua.TimestampsToReturn         `json:"timestamps_to_return,omitempty"`
-	createResult         *ua.MonitoredItemCreateResult `json:"create_result,omitempty"`
+//TODO -
+// ItemToMonitor - Build out structure
+// MonitoringParameters - Build out structure, figure out how to implement Filter are
+//
+type opcuaMonitoredItemCreateMQTTMessage struct {
+	NodeID string `json:"node_id"`
+	//AttributeID uint32 `json:"attribute_id"` - For now, we will only use attribute id 13 (AttributeIDValue)
+	//
+	// TODO - Implement later
+	//
+	//Monitoring params - We will be using defaults for now
+	// SamplingInterval float64
+	// Filter           *ExtensionObject
+	// QueueSize        uint32
+	// DiscardOldest    bool
+}
+
+type opcuaMonitoredItemCreateResultMQTTMessage struct {
+	NodeID string `json:"node_id"`
+	//AttributeID             uint32  `json:"attribute_id"`
+	ClientHandle            uint32  `json:"client_handle"`
+	DiscardOldest           bool    `json:"disgard_oldest"`
+	StatusCode              uint32  `json:"status_code"`
+	MonitoredItemID         uint32  `json:"status_code"`
+	RevisedSamplingInterval float64 `json:"status_code"`
+	RevisedQueueSize        uint32  `json:"status_code"`
+	FilterResult            interface{}
+	MonitoringMode          uint32 `json:"monitoring_mode"`
+	TimestampsToReturn      uint32 `json:"timestamps_to_return,omitempty"`
+}
+
+type opcuaMonitoredItemNotificationMQTTMessage struct {
+	NodeID string `json:"node_id"`
+	//AttributeID             uint32  `json:"attribute_id"`
+	ClientHandle uint32      `json:"client_handle"`
+	value        interface{} `json:"value"`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {
-	NodeID        string                  `json:"node_id"`
-	RequestType   SubscriptionRequestType `json:"request_type"`
-	RequestParams *interface{}            `json:"request_params,omitempty"`
+	RequestType   SubscriptionOperationType `json:"request_type"`
+	RequestParams *interface{}              `json:"request_params,omitempty"`
 }
 
 type opcuaSubscriptionResponseMQTTMessage struct {
-	NodeID       string                  `json:"node_id"`
-	RequestType  SubscriptionRequestType `json:"request_type"`
-	Timestamp    string                  `json:"timestamp"`
-	Success      bool                    `json:"success"`
-	StatusCode   uint32                  `json:"status_code"`
-	ErrorMessage string                  `json:"error_message"`
+	RequestType  SubscriptionOperationType `json:"request_type"`
+	Timestamp    string                    `json:"timestamp"`
+	Success      bool                      `json:"success"`
+	StatusCode   uint32                    `json:"status_code"`
+	ErrorMessage string                    `json:"error_message"`
+	Results      []interface{}             `json:"results"`
 }
