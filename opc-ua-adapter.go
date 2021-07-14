@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ var (
 	adapterConfig     *adapter_library.AdapterConfig
 	opcuaClient       *opcua.Client
 	openSubscriptions = make(map[uint32]*opcua.Subscription)
+	clientHandle      uint32
 )
 
 func main() {
@@ -408,7 +410,9 @@ func handleSubscriptionRequest(message *mqttTypes.Publish) {
 
 //OPC UA Subscription Service Set - Create
 func handleSubscriptionCreate(subReq *opcuaSubscriptionRequestMQTTMessage) {
-	parms := (*(subReq.RequestParams)).(opcuaSubscriptionCreateParmsMQTTMessage)
+	jsonString, _ := json.Marshal(*subReq.RequestParams)
+	parms := opcuaSubscriptionCreateParmsMQTTMessage{}
+	json.Unmarshal(jsonString, &parms)
 	subParms := &opcua.SubscriptionParameters{}
 
 	if parms.PublishInterval != nil {
@@ -444,6 +448,10 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		RequestType: SubscriptionCreate,
 	}
 
+	jsonString, _ := json.Marshal(*subReq.RequestParams)
+	parms := opcuaSubscriptionCreateParmsMQTTMessage{}
+	json.Unmarshal(jsonString, &parms)
+
 	notifyCh := make(chan *opcua.PublishNotificationData)
 
 	sub, err := opcuaClient.Subscribe(subParms, notifyCh)
@@ -456,46 +464,48 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	openSubscriptions[sub.SubscriptionID] = sub
 
 	defer sub.Cancel()
-	log.Printf("Created subscription with id %v", sub.SubscriptionID)
+	log.Printf("[INFO] createSubscription - Created subscription with id %v", sub.SubscriptionID)
 
-	//TODO - Now that we have a subscription, we need to add the monitored items
+	//Now that we have a subscription, we need to add the monitored items
+	var miCreateRequests []*ua.MonitoredItemCreateRequest
+	// TODO - clean this up, just hardcoded some stuff to get it working
+	nodeid, _ := ua.ParseNodeID(subReq.NodeID)
+	//for _, item := range *parms.MonitoredItems {
+	miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeid, ua.AttributeIDValue, getClientHandle()))
+	//}
+	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
+	if err != nil {
+		log.Printf("[ERROR] createSubscription - Error occurred while adding monitored items: %s\n", err.Error())
+		returnSubscribeError(err.Error(), &resp)
+	}
+	for _, result := range res.Results {
+		if result.StatusCode != ua.StatusOK {
+			log.Printf("[ERROR] createSubscription - Failed to add monitor item with status code: %d\n", result.StatusCode)
+			returnSubscribeError(fmt.Errorf("Failed to add monitor item with status code: %d", result.StatusCode).Error(), &resp)
+		}
+	}
+	log.Printf("[INFO] createSubscription - Added all monitored items")
 
-	//TODO
-	//
-	// Determine how to exit, do we need to use a context or do we write to the existing channel
-	//
-	// read from subscription's notification channel until ctx is cancelled
-	// for {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return
-	// 	case res := <-notifyCh:
-	// 		if res.Error != nil {
-	// 			log.Print(res.Error)
-	// 			continue
-	// 		}
-
-	// 		switch x := res.Value.(type) {
-	// 		case *ua.DataChangeNotification:
-	// 			for _, item := range x.MonitoredItems {
-	// 				data := item.Value.Value.Value()
-	// 				log.Printf("MonitoredItem with client handle %v = %v", item.ClientHandle, data)
-	// 			}
-
-	// 		case *ua.EventNotificationList:
-	// 			for _, item := range x.Events {
-	// 				log.Printf("Event for client handle: %v\n", item.ClientHandle)
-	// 				for i, field := range item.EventFields {
-	// 					log.Printf("%v: %v of Type: %T", eventFieldNames[i], field.Value(), field.Value())
-	// 				}
-	// 				log.Println()
-	// 			}
-
-	// 		default:
-	// 			log.Printf("what's this publish result? %T", res.Value)
-	// 		}
-	// 	}
-	// }
+	for {
+		select {
+		case res := <-notifyCh:
+			if res.Error != nil {
+				log.Printf("[ERROR] createSubscription - Unexpected error onsubscription: %s\n", res.Error.Error())
+				// TODO - should we publish a subscribe error here?
+				continue
+			}
+			switch x := res.Value.(type) {
+			case *ua.DataChangeNotification:
+				// TODO - need to publish this data via MQTT, but looks like we may need to track client handles to know how to map this to the monitored item/nodeid
+				for _, item := range x.MonitoredItems {
+					log.Printf("[INFO] MonitoredItem with client handle %v=%v", item.ClientHandle, item.Value.Value.Value())
+				}
+			default:
+				log.Printf("[INFO] createSubscription - Unimplemented response type on subscription: %s\n", res.Value)
+				// TODO - should we publish a subscribe error here?
+			}
+		}
+	}
 }
 
 // OPC UA Subscription Service Set - Publish
@@ -507,7 +517,9 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 //OPC UA Subscription Service Set - Delete
 func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
-	parms := (*(subReq.RequestParams)).(opcuaSubscriptionDeleteParmsMQTTMessage)
+	jsonString, _ := json.Marshal(*subReq.RequestParams)
+	parms := opcuaSubscriptionDeleteParmsMQTTMessage{}
+	json.Unmarshal(jsonString, &parms)
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
 		NodeID:       subReq.NodeID,
@@ -561,4 +573,9 @@ func publishJson(topic string, data interface{}) {
 	if err != nil {
 		log.Printf("[ERROR] Failed to publish MQTT message to topic %s: %s\n", topic, err.Error())
 	}
+}
+
+func getClientHandle() uint32 {
+	clientHandle++
+	return clientHandle
 }
