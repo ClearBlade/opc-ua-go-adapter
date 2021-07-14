@@ -19,19 +19,6 @@ type opcuaAdapterSettings struct {
 	SecurityPolicy string              `json:"security_policy"`
 }
 
-// type opcuaSubscription struct {
-// 	SubscriptionID            uint32                        `json:"endpoint_url"`
-// 	RevisedPublishingInterval time.Duration                 `json:"endpoint_url"`
-// 	RevisedLifetimeCount      uint32                        `json:"endpoint_url"`
-// 	RevisedMaxKeepAliveCount  uint32                        `json:"endpoint_url"`
-// 	Notifs                    chan *PublishNotificationData `json:"endpoint_url"`
-// 	params                    *SubscriptionParameters       `json:"endpoint_url"`
-// 	items                     []*monitoredItem              `json:"endpoint_url"`
-// 	lastSeq                   uint32                        `json:"endpoint_url"`
-// 	nextSeq                   uint32                        `json:"endpoint_url"`
-// 	c                         *Client                       `json:"endpoint_url"`
-// }
-
 type opcuaReadResponseMQTTMessage struct {
 	Timestamp string                 `json:"timestamp"`
 	Data      map[string]interface{} `json:"data"`
@@ -70,7 +57,11 @@ type opcuaMethodResponseMQTTMessage struct {
 
 type SubscriptionOperationType string
 
-// TODO - Add missing subscription request types when they are implemented by github.com/gopcua
+// TODO - Add missing subscription operation types when they are implemented by github.com/gopcua
+// * ModifySubscription
+// * SetPublishingMode
+// * Republish
+// * TransferSubscriptions
 const (
 	SubscriptionCreate    SubscriptionOperationType = "create"
 	SubscriptionRepublish SubscriptionOperationType = "republish"
@@ -95,24 +86,17 @@ type opcuaSubscriptionCreateParmsMQTTMessage struct {
 	MonitoredItems             *[]opcuaMonitoredItemCreateMQTTMessage `json:"items_to_monitor,omitempty"`
 }
 
-//TODO
-type opcuaSubscriptionPublishParmsMQTTMessage struct {
-	PublishInterval            uint32 `json:"publish_interval,omitempty"`
-	LifetimeCount              uint32 `json:"lifetime,omitempty"`
-	MaxKeepAliveCount          uint32 `json:"keepalive,omitempty"`
-	MaxNotificationsPerPublish uint32 `json:"max_publish_notifications,omitempty"`
-	Priority                   uint8  `json:"priority,omitempty"`
+//TODO - Republish has not been implemented by "github.com/gopcua/opcua/ua" yet
+type opcuaSubscriptionRepublishParmsMQTTMessage struct {
+	SubscriptionID uint32 `json:"subscription_id"`
 }
 
-//TODO
 type opcuaSubscriptionDeleteParmsMQTTMessage struct {
 	SubscriptionID uint32 `json:"subscription_id"`
 }
 
-//TODO -
-// ItemToMonitor - Build out structure
-// MonitoringParameters - Build out structure, figure out how to implement Filter are
-//
+//TODO - MonitoringParameters - Build out structure, figure out how to implement Filter
+//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemCreateMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID uint32 `json:"attribute_id"` - For now, we will only use attribute id 13 (AttributeIDValue)
@@ -126,20 +110,21 @@ type opcuaMonitoredItemCreateMQTTMessage struct {
 	// DiscardOldest    bool
 }
 
+//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemCreateResultMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
 	ClientHandle            uint32  `json:"client_handle"`
 	DiscardOldest           bool    `json:"disgard_oldest"`
 	StatusCode              uint32  `json:"status_code"`
-	MonitoredItemID         uint32  `json:"status_code"`
-	RevisedSamplingInterval float64 `json:"status_code"`
-	RevisedQueueSize        uint32  `json:"status_code"`
+	RevisedSamplingInterval float64 `json:"revised_sampling_interval"`
+	RevisedQueueSize        uint32  `json:"revised_queue_size"`
 	FilterResult            interface{}
 	MonitoringMode          uint32 `json:"monitoring_mode"`
 	TimestampsToReturn      uint32 `json:"timestamps_to_return,omitempty"`
 }
 
+//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemNotificationMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`

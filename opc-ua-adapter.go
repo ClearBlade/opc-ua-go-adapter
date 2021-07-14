@@ -17,12 +17,12 @@ import (
 	"github.com/gopcua/opcua/ua"
 )
 
-//TODO
-// Implement subscriptions
-//	create - in progress
-//	publish - Needs research. I believe this refers to a "republish" request
-//
-// Implement alarms
+// TODO
+//  * Implement alarms (events??)
+//  * Implement ModifySubscription when implemented by github.com/gopcua
+//  * Implement SetPublishingMode when implemented by github.com/gopcua
+//  * Implement Republish when implemented by github.com/gopcua
+//  * Implement TransferSubscriptions when implemented by github.com/gopcua
 //
 
 const (
@@ -61,16 +61,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
-
-	//
-	// The adapter will supports the following opcua operations:
-	//
-	//  read
-	//	write
-	//	method
-	//  subscribe
-	//  alarm???
-	//
 
 	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/+", cbMessageHandler)
 	if err != nil {
@@ -396,9 +386,6 @@ func handleSubscriptionRequest(message *mqttTypes.Publish) {
 	switch strings.ToLower(string(subReq.RequestType)) {
 	case string(SubscriptionCreate):
 		handleSubscriptionCreate(&subReq)
-	// TODO - Need to research what publish is for. I believe it is a "republish" request
-	// case string(SubscriptionPublish):
-	// 	handleSubscriptionPublish(&subReq)
 	case string(SubscriptionDelete):
 		handleSubscriptionDelete(&subReq)
 	default:
@@ -438,7 +425,6 @@ func handleSubscriptionCreate(subReq *opcuaSubscriptionRequestMQTTMessage) {
 
 	//Create the subscription in a goroutine since we could have more than one subscription created
 	go createSubscription(subReq, subParms)
-
 }
 
 func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *opcua.SubscriptionParameters) {
@@ -474,7 +460,6 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 	//Now that we have a subscription, we need to add the monitored items
 	var miCreateRequests []*ua.MonitoredItemCreateRequest
-	// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 
 	errors := false
 	for _, item := range *parms.MonitoredItems {
@@ -488,6 +473,8 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			})
 			continue
 		}
+
+		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 		miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
 
 		//Add the client handle and request to the map
@@ -517,7 +504,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		resp.Success = false
 	}
 
-	publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
+	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", &resp)
 
 	for {
 		select {
@@ -548,7 +535,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
 			//
-			// TODO - Add event code
+			// TODO - Add event notification code
 			//
 			// case *ua.EventNotificationList:
 			// 	for _, item := range x.Events {
@@ -565,14 +552,6 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		}
 	}
 }
-
-// OPC UA Subscription Service Set - Publish
-// func handleSubscriptionPublish(subReq *opcuaSubscriptionRequestMQTTMessage) {
-//
-// TODO - We need to figure out how publish works with a client. It would make sense that publish
-// is only a server function. This is most likely a "republish" function.
-//
-// }
 
 //OPC UA Subscription Service Set - Delete
 func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
