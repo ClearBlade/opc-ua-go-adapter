@@ -70,7 +70,7 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 | `read` |
 | `write` | 
 | `method` |
-| `method` |
+| `subscribe` |
 
 ## MQTT Topic Structure
 The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA operations. Additionally, the adapter will publish messages to MQTT topics for results of the OPC UA operations. The topic structures utilized are as follows:
