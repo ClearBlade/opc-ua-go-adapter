@@ -115,8 +115,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
     "timestamp": "", //ISO formatted timestamp
     "success": true|false,
     "status_code": 0, //Integer
-    "error_message": "",
-    "results": [0] //Array of status codes (integers)
+    "error_message": ""
 }
 ```
 
