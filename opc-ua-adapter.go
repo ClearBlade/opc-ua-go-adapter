@@ -71,58 +71,13 @@ func main() {
 	opcuaClient = initializeOPCUA()
 	defer opcuaClient.Close()
 
-	// start polling of node_ids specified in adapter settings
-	log.Println("[INFO] Start polling of provided node ids")
+	// keep adapter running and listening for incoming publishes
+	select {}
 
-	readReq := &ua.ReadRequest{
-		MaxAge:             2000,
-		NodesToRead:        []*ua.ReadValueID{},
-		TimestampsToReturn: ua.TimestampsToReturnBoth,
-	}
-
-	for _, nodeid := range adapterSettings.NodeIDs {
-		parsedID, err := ua.ParseNodeID(nodeid)
-		if err != nil {
-			log.Fatalf("[FATAL] Failed to parse node id %s: %s", nodeid, err.Error())
-		}
-		readReq.NodesToRead = append(readReq.NodesToRead, &ua.ReadValueID{
-			NodeID: parsedID,
-		})
-	}
-
-	ticker := time.NewTicker(time.Duration(adapterSettings.PollInterval) * time.Second)
-
-	for {
-		select {
-		case _ = <-ticker.C:
-			resp, err := opcuaClient.Read(readReq)
-			if err != nil {
-				log.Printf("[ERROR] Read request failed: %s\n", err.Error())
-				break
-			}
-			mqttMessage := opcuaReadResponseMQTTMessage{
-				Data: make(map[string]interface{}),
-			}
-			for idx, result := range resp.Results {
-				if result.Status == ua.StatusOK {
-					mqttMessage.Timestamp = result.ServerTimestamp.Format(time.RFC3339)
-					mqttMessage.Data[adapterSettings.NodeIDs[idx]] = result.Value.Value()
-				} else {
-					log.Printf("[ERROR] Read Status not OK for node id %s: %v\n", adapterSettings.NodeIDs[idx], result.Status)
-				}
-			}
-			if len(mqttMessage.Data) == 0 {
-				log.Println("[IFNO] No data received, nothing to publish")
-				continue
-			}
-
-			publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", mqttMessage)
-		}
-	}
 }
 
 func initializeOPCUA() *opcua.Client {
-	log.Println("[INFO] initializeOPCUAPolling - Creating OPC UA Session")
+	log.Println("[INFO] initializeOPCUA - Creating OPC UA Session")
 
 	if adapter_library.Args.LogLevel == "debug" {
 		debug.Enable = true
@@ -219,7 +174,10 @@ func initializeOPCUA() *opcua.Client {
 
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
-	if strings.HasSuffix(message.Topic.Whole, writeTopic) {
+	if strings.HasSuffix(message.Topic.Whole, readTopic) {
+		log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
+		go handleReadRequest(message)
+	} else if strings.HasSuffix(message.Topic.Whole, writeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
 		go handleWriteRequest(message)
 	} else if strings.HasSuffix(message.Topic.Whole, methodTopic) {
@@ -233,24 +191,102 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 	}
 }
 
+// OPC UA Attribute Service Set - read
+func handleReadRequest(message *mqttTypes.Publish) {
+
+	mqttResp := opcuaReadResponseMQTTMessage{
+		Timestamp:    "",
+		Data:         make(map[string]interface{}),
+		Success:      true,
+		StatusCode:   0,
+		ErrorMessage: "",
+	}
+
+	readReq := opcuaReadRequestMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &readReq)
+	if err != nil {
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		returnReadError(err.Error(), &mqttResp)
+		return
+	}
+
+	opcuaReadReq := &ua.ReadRequest{
+		MaxAge:             2000,
+		NodesToRead:        []*ua.ReadValueID{},
+		TimestampsToReturn: ua.TimestampsToReturnBoth,
+	}
+
+	for _, nodeid := range readReq.NodeIDs {
+		parsedID, err := ua.ParseNodeID(nodeid)
+		if err != nil {
+			log.Printf("[ERROR] Failed to parse node id %s: %s", nodeid, err.Error())
+			returnReadError(err.Error(), &mqttResp)
+			return
+		}
+		opcuaReadReq.NodesToRead = append(opcuaReadReq.NodesToRead, &ua.ReadValueID{
+			NodeID: parsedID,
+		})
+	}
+
+	opcuaResp, err := opcuaClient.Read(opcuaReadReq)
+	if err != nil {
+		log.Printf("[ERROR] Read request failed: %s\n", err.Error())
+		returnReadError(err.Error(), &mqttResp)
+		return
+	}
+
+	for idx, result := range opcuaResp.Results {
+		if result.Status == ua.StatusOK {
+			mqttResp.Timestamp = result.ServerTimestamp.Format(time.RFC3339)
+			mqttResp.Data[readReq.NodeIDs[idx]] = result.Value.Value()
+		} else {
+			log.Printf("[ERROR] Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status)
+			returnReadError(fmt.Sprintf("Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status), &mqttResp)
+			return
+		}
+	}
+
+	if len(mqttResp.Data) == 0 {
+		log.Println("[IFNO] No data received, nothing to publish")
+		return
+	}
+
+	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", mqttResp)
+}
+
 //OPC UA Attribute Service Set - write
 func handleWriteRequest(message *mqttTypes.Publish) {
+
+	mqttResp := opcuaWriteResponseMQTTMessage{
+		NodeID:       "",
+		Timestamp:    "",
+		Success:      true,
+		StatusCode:   0,
+		ErrorMessage: "",
+	}
+
 	writeReq := opcuaWriteRequestMQTTMessage{}
 	err := json.Unmarshal(message.Payload, &writeReq)
 	if err != nil {
 		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
+
 	id, err := ua.ParseNodeID(writeReq.NodeID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to parse OPC UA Node ID: %s\n", err.Error())
+		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
+
 	v, err := ua.NewVariant(writeReq.Value)
 	if err != nil {
 		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
+		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
+
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
 			&ua.WriteValue{
@@ -263,22 +299,24 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 			},
 		},
 	}
+
 	resp, err := opcuaClient.Write(req)
-
-	mqttResp := opcuaWriteResponseMQTTMessage{
-		NodeID:       writeReq.NodeID,
-		Timestamp:    resp.ResponseHeader.Timestamp.Format(time.RFC3339),
-		Success:      true,
-		StatusCode:   uint32(resp.ResponseHeader.ServiceResult),
-		ErrorMessage: "",
-		Results:      resp.Results,
-	}
-
 	if err != nil {
 		log.Printf("[ERROR] Failed to write OPC UA tag %s: %s\n", writeReq.NodeID, err.Error())
-		mqttResp.Success = false
-		mqttResp.ErrorMessage = err.Error()
+		returnWriteError(err.Error(), &mqttResp)
+		return
 	}
+
+	if resp.ResponseHeader.ServiceResult != ua.StatusOK {
+		log.Printf("[ERROR] non ok status returned from write: %d\n", resp.ResponseHeader.ServiceResult)
+		returnWriteError(fmt.Sprintf("Non OK status code returned from write: %d\n", resp.ResponseHeader.ServiceResult), &mqttResp)
+		return
+	}
+
+	mqttResp.NodeID = writeReq.NodeID
+	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.Format(time.RFC3339)
+	mqttResp.StatusCode = uint32(resp.ResponseHeader.ServiceResult)
+
 	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
 
 	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", mqttResp)
@@ -585,6 +623,20 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 
 	//Delete open subscription from map
 	delete(openSubscriptions, parms.SubscriptionID)
+}
+
+func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
+	resp.Success = false
+	resp.ErrorMessage = errMsg
+	resp.Timestamp = time.Now().Format(javascriptISOString)
+	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", resp)
+}
+
+func returnWriteError(errMsg string, resp *opcuaWriteResponseMQTTMessage) {
+	resp.Success = false
+	resp.ErrorMessage = errMsg
+	resp.Timestamp = time.Now().Format(javascriptISOString)
+	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", resp)
 }
 
 func returnMethodError(errMsg string, resp *opcuaMethodResponseMQTTMessage) {

@@ -1,9 +1,5 @@
 package main
 
-import (
-	"github.com/gopcua/opcua/ua"
-)
-
 type opcuaAuthentication struct {
 	Type     string `json:"type"`
 	Username string `json:"username"`
@@ -12,16 +8,21 @@ type opcuaAuthentication struct {
 
 type opcuaAdapterSettings struct {
 	EndpointURL    string              `json:"endpoint_url"`
-	NodeIDs        []string            `json:"node_ids"`
-	PollInterval   float64             `json:"poll_interval"`
 	Authentication opcuaAuthentication `json:"authentication"`
 	SecurityMode   string              `json:"security_mode"`
 	SecurityPolicy string              `json:"security_policy"`
 }
 
+type opcuaReadRequestMQTTMessage struct {
+	NodeIDs []string `json:"node_ids"`
+}
+
 type opcuaReadResponseMQTTMessage struct {
-	Timestamp string                 `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
+	Timestamp    string                 `json:"timestamp"`
+	Data         map[string]interface{} `json:"data"`
+	Success      bool                   `json:"success"`
+	StatusCode   uint32                 `json:"status_code"`
+	ErrorMessage string                 `json:"error_message"`
 }
 
 type opcuaWriteRequestMQTTMessage struct {
@@ -30,12 +31,11 @@ type opcuaWriteRequestMQTTMessage struct {
 }
 
 type opcuaWriteResponseMQTTMessage struct {
-	NodeID       string          `json:"node_id"`
-	Timestamp    string          `json:"timestamp"`
-	Success      bool            `json:"success"`
-	StatusCode   uint32          `json:"status_code"`
-	ErrorMessage string          `json:"error_message"`
-	Results      []ua.StatusCode `json:"results"`
+	NodeID       string `json:"node_id"`
+	Timestamp    string `json:"timestamp"`
+	Success      bool   `json:"success"`
+	StatusCode   uint32 `json:"status_code"`
+	ErrorMessage string `json:"error_message"`
 }
 
 type opcuaMethodRequestMQTTMessage struct {

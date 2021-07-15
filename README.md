@@ -19,20 +19,11 @@ Once a System has been created, artifacts must be defined within the ClearBlade 
 | topic_root       | string          |
 
 ## Adapter Settings Structure
-The `adapter_settings` JSON string provided in the `adapter_config` collection is expected to have the following structure. This JSON is how you provide the Adapter with the specific OPC UA Server connection details, as well as a list of all tags/node ids that should be pulled, and what the polling rate is.
+The `adapter_settings` JSON string provided in the `adapter_config` collection is expected to have the following structure. This JSON is how you provide the Adapter with the specific OPC UA Server connection details.
 
 ```json
 {
   "endpoint_url": "opc.tcp://clearblades-mbp.lan:53530/OPCUA/SimulationServer",
-  "node_ids": [
-    "ns=3;i=1001",
-    "ns=3;i=1002",
-    "ns=3;i=1003",
-    "ns=3;i=1004",
-    "ns=3;i=1005",
-    "ns=3;i=1006"
-  ],
-  "poll_interval": 5,
   "authentication": {
     "type": "username",
     "username": "testing",
@@ -75,6 +66,7 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 ## MQTT Topic Structure
 The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA operations. Additionally, the adapter will publish messages to MQTT topics for results of the OPC UA operations. The topic structures utilized are as follows:
 
+ * OPC UA Read Request: {__TOPIC ROOT__}/read
  * OPC UA Read Results: {__TOPIC ROOT__}/read/response
  * OPC UA Write Request: {__TOPIC ROOT__}/write
  * OPC UA Write Response: {__TOPIC ROOT__}/write/response
@@ -85,6 +77,13 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
  * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
  * OPC UA Publish: {__TOPIC ROOT__}/publish/response
 ## MQTT Message Structure
+
+### OPC UA Read Request Payload Format
+```json
+{
+  "node_ids": ["ns=3;i=1001", "ns=3;i=1002", "ns=3;i=1003", "ns=3;i=1004", "ns=3;i=1005", "ns=3;i=1006"]
+}
+```
 
 ### OPC UA Read Results Payload Format
  ```json
