@@ -166,16 +166,21 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
     "priority": 0, //Integer
     "items_to_monitor": [
       {
-        "node_id": "ns=2;i=1001"
+        "node_id": "ns=2;i=1001",
+        "events": true|false,
+        "value": true|false
       },
-            {
-        "node_id": "ns=3;i=1001"
+      {
+        "node_id": "ns=3;i=1001",
+        "events": true|false,
+        "value": true|false
       },
       ...
     ],
 }
 ```
-
+  * The events flag in each _item_to_monitor_ indicates whether or not events should be subscribed to
+  * The value flag in each _item_to_monitor_ indicates whether or not value changes should be subscribed to
 
 ### OPC UA Subscription Delete Request Payload Format
 ```json
@@ -196,12 +201,26 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
       {
         "node_id": "ns=2;i=1001",
         "client_handle": 1,
-        "value": 5
+        "value": 5,
+        "event" : {
+          "event_id": "",
+          "event_type": "SystemEventType",
+          "severity": 2, //1-1000
+          "time": "", //ISO formatted timestamp
+          "message": "A system event has occurred",
+        }
       },
       {
         "node_id": "ns=3;i=1001",
         "client_handle": 2,
-        "value": "hello"
+        "value": "hello",
+        "event" : {
+          "event_id": "",
+          "event_type": "SystemEventType",
+          "severity": 2, //1-1000
+          "time": "", //ISO formatted timestamp
+          "message": "A system event has occurred",
+        }
       },
       ...
     ],
