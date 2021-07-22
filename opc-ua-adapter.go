@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 	mqttTypes "github.com/clearblade/mqtt_parsing"
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/debug"
+	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
 )
 
@@ -43,6 +45,7 @@ var (
 	openSubscriptions      = make(map[uint32]*opcua.Subscription)
 	clientHandle           uint32
 	clientHandleRequestMap = make(map[uint32]interface{})
+	eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
 )
 
 func main() {
@@ -62,13 +65,14 @@ func main() {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
-	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/+", cbMessageHandler)
+	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
 	}
 
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
+
 	defer opcuaClient.Close()
 
 	// keep adapter running and listening for incoming publishes
@@ -174,16 +178,18 @@ func initializeOPCUA() *opcua.Client {
 
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
-	if strings.HasSuffix(message.Topic.Whole, readTopic) {
+	if strings.Contains(message.Topic.Whole, "response") {
+		log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
+	} else if strings.Contains(message.Topic.Whole, readTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
 		go handleReadRequest(message)
-	} else if strings.HasSuffix(message.Topic.Whole, writeTopic) {
+	} else if strings.Contains(message.Topic.Whole, writeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
 		go handleWriteRequest(message)
-	} else if strings.HasSuffix(message.Topic.Whole, methodTopic) {
+	} else if strings.Contains(message.Topic.Whole, methodTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
 		go handleMethodRequest(message)
-	} else if strings.HasSuffix(message.Topic.Whole, subscribeTopic) {
+	} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
 		go handleSubscriptionRequest(message)
 	} else {
@@ -513,10 +519,85 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		}
 
 		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
-		miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
+		if item.Values {
+			miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
+			clientHandleRequestMap[clientHandle] = item
+		}
 
-		//Add the client handle and request to the map
-		clientHandleRequestMap[clientHandle] = item
+		if item.Events {
+			selects := make([]*ua.SimpleAttributeOperand, len(eventFieldNames))
+
+			for i, name := range eventFieldNames {
+				selects[i] = &ua.SimpleAttributeOperand{
+					TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
+					BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: name}},
+					AttributeID:      ua.AttributeIDValue,
+				}
+			}
+
+			wheres := &ua.ContentFilter{
+				Elements: []*ua.ContentFilterElement{
+					{
+						FilterOperator: ua.FilterOperatorGreaterThanOrEqual,
+						FilterOperands: []*ua.ExtensionObject{
+							{
+								EncodingMask: 1,
+								TypeID: &ua.ExpandedNodeID{
+									NodeID: ua.NewNumericNodeID(0, id.SimpleAttributeOperand_Encoding_DefaultBinary),
+								},
+								Value: ua.SimpleAttributeOperand{
+									TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
+									BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: "Severity"}},
+									AttributeID:      ua.AttributeIDValue,
+								},
+							},
+							{
+								EncodingMask: 1,
+								TypeID: &ua.ExpandedNodeID{
+									NodeID: ua.NewNumericNodeID(0, id.LiteralOperand_Encoding_DefaultBinary),
+								},
+								Value: ua.LiteralOperand{
+									Value: ua.MustVariant(uint16(0)),
+								},
+							},
+						},
+					},
+				},
+			}
+
+			filter := ua.EventFilter{
+				SelectClauses: selects,
+				WhereClause:   wheres,
+			}
+
+			filterExtObj := ua.ExtensionObject{
+				EncodingMask: ua.ExtensionObjectBinary,
+				TypeID: &ua.ExpandedNodeID{
+					NodeID: ua.NewNumericNodeID(0, id.EventFilter_Encoding_DefaultBinary),
+				},
+				Value: filter,
+			}
+
+			handle := getClientHandle()
+			req := &ua.MonitoredItemCreateRequest{
+				ItemToMonitor: &ua.ReadValueID{
+					NodeID:       nodeId,
+					AttributeID:  ua.AttributeIDEventNotifier,
+					DataEncoding: &ua.QualifiedName{},
+				},
+				MonitoringMode: ua.MonitoringModeReporting,
+				RequestedParameters: &ua.MonitoringParameters{
+					ClientHandle:     handle,
+					DiscardOldest:    true,
+					Filter:           &filterExtObj,
+					QueueSize:        10,
+					SamplingInterval: 1.0,
+				},
+			}
+			miCreateRequests = append(miCreateRequests, req)
+			clientHandleRequestMap[clientHandle] = item
+		}
+
 	}
 	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
 	if err != nil {
@@ -572,17 +653,30 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				}
 
 				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
-			//
-			// TODO - Add event notification code
-			//
-			// case *ua.EventNotificationList:
-			// 	for _, item := range x.Events {
-			// 		log.Printf("Event for client handle: %v\n", item.ClientHandle)
-			// 		for i, field := range item.EventFields {
-			// 			log.Printf("%v: %v of Type: %T", eventFieldNames[i], field.Value(), field.Value())
-			// 		}
-			// 		log.Println()
-			// 	}
+			case *ua.EventNotificationList:
+				resp := opcuaSubscriptionResponseMQTTMessage{
+					RequestType:  SubscriptionPublish,
+					Timestamp:    time.Now().Format(javascriptISOString),
+					Success:      true,
+					StatusCode:   uint32(ua.StatusOK),
+					ErrorMessage: "",
+					Results:      []interface{}{},
+				}
+
+				for _, item := range x.Events {
+					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
+						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						Event: opcuaEventMessage{
+							EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
+							EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
+							Severity:  uint32(item.EventFields[2].Value().(uint16)),
+							Time:      item.EventFields[3].Value().(time.Time).Format(javascriptISOString),
+							Message:   item.EventFields[4].Value().(*ua.LocalizedText).Text,
+						},
+					})
+				}
+
+				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
 			default:
 				log.Printf("[INFO] createSubscription - Unimplemented response type on subscription: %s\n", res.Value)
 				returnSubscribeError("Unimplemented response type on subscription", &resp)

@@ -99,6 +99,8 @@ type opcuaSubscriptionDeleteParmsMQTTMessage struct {
 //TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemCreateMQTTMessage struct {
 	NodeID string `json:"node_id"`
+	Values bool   `json:"values"`
+	Events bool   `json:"events"`
 	//AttributeID uint32 `json:"attribute_id"` - For now, we will only use attribute id 13 (AttributeIDValue)
 	//
 	// TODO - Implement later
@@ -128,8 +130,18 @@ type opcuaMonitoredItemCreateResultMQTTMessage struct {
 type opcuaMonitoredItemNotificationMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
-	ClientHandle uint32      `json:"client_handle"`
-	Value        interface{} `json:"value"`
+	ClientHandle uint32            `json:"client_handle"`
+	Value        interface{}       `json:"value,omitempty"`
+	Event        opcuaEventMessage `json:"event,omitempty"`
+}
+
+//eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
+type opcuaEventMessage struct {
+	EventID   string `json:"event_id"`
+	EventType string `json:"event_type"`
+	Severity  uint32 `json:"severity"`
+	Time      string `json:"time"`
+	Message   string `json:"message"`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {
