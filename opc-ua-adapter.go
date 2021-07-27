@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	adapter_library "github.com/clearblade/adapter-go-library"
@@ -73,10 +76,20 @@ func main() {
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
-	defer opcuaClient.Close()
+	// wait for signal to stop/kill process to allow for graceful shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-c
 
-	// keep adapter running and listening for incoming publishes
-	select {}
+	log.Printf("[INFO] OS signal %s received, gracefully shutting down adapter.\n", sig)
+
+	err = opcuaClient.Close()
+	if err != nil {
+		log.Printf("[ERROR] Failed to close OPC UA Session: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	os.Exit(0)
 
 }
 
