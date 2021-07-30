@@ -31,14 +31,13 @@ import (
 //
 
 const (
-	adapterName         = "opc-ua-adapter"
-	appuri              = "urn:cb-opc-ua-adapter:client"
-	readTopic           = "read"
-	writeTopic          = "write"
-	methodTopic         = "method"
-	subscribeTopic      = "subscribe"
-	publishTopic        = "publish"
-	javascriptISOString = "2006-01-02T15:04:05.000Z07:00"
+	adapterName    = "opc-ua-adapter"
+	appuri         = "urn:cb-opc-ua-adapter:client"
+	readTopic      = "read"
+	writeTopic     = "write"
+	methodTopic    = "method"
+	subscribeTopic = "subscribe"
+	publishTopic   = "publish"
 )
 
 var (
@@ -299,12 +298,13 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	v, err := ua.NewVariant(writeReq.Value)
+	v, err := ua.NewVariant(float32(writeReq.Value.(float64)))
 	if err != nil {
 		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
 		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
+	log.Printf("%+v\n", v.Type())
 
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
@@ -332,8 +332,11 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 		return
 	}
 
+	log.Printf("%+v\n", resp.ResponseHeader)
+	log.Printf("%+v\n", resp.Results)
+
 	mqttResp.NodeID = writeReq.NodeID
-	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.Format(time.RFC3339)
+	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.UTC().Format(time.RFC3339)
 	mqttResp.StatusCode = uint32(resp.ResponseHeader.ServiceResult)
 
 	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
@@ -402,7 +405,7 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	resp, err := opcuaClient.Call(req)
 
 	//Populate the MQTT response and publish to the platform
-	mqttResp.Timestamp = time.Now().Format(javascriptISOString)
+	mqttResp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	mqttResp.StatusCode = uint32(resp.StatusCode)
 
 	//Check for errors while invoking the method
@@ -634,7 +637,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	log.Printf("[INFO] createSubscription - Added all monitored items")
 
 	//Publish create response
-	resp.Timestamp = time.Now().Format(javascriptISOString)
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
 	if errors == true {
 		resp.ErrorMessage = "Failed to add all monitor items, see results"
@@ -655,7 +658,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			case *ua.DataChangeNotification:
 				resp := opcuaSubscriptionResponseMQTTMessage{
 					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().Format(javascriptISOString),
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
 					Success:        true,
 					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
@@ -675,7 +678,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			case *ua.EventNotificationList:
 				resp := opcuaSubscriptionResponseMQTTMessage{
 					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().Format(javascriptISOString),
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
 					Success:        true,
 					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
@@ -690,7 +693,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 							EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
 							EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
 							Severity:  uint32(item.EventFields[2].Value().(uint16)),
-							Time:      item.EventFields[3].Value().(time.Time).Format(javascriptISOString),
+							Time:      item.EventFields[3].Value().(time.Time).UTC().Format(time.RFC3339),
 							Message:   item.EventFields[4].Value().(*ua.LocalizedText).Text,
 						},
 					})
@@ -714,7 +717,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	resp := opcuaSubscriptionResponseMQTTMessage{
 		//NodeID:       subReq.NodeID,
 		RequestType:    SubscriptionDelete,
-		Timestamp:      time.Now().Format(javascriptISOString),
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		Success:        true,
 		StatusCode:     0,
 		ErrorMessage:   "",
@@ -750,28 +753,28 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().Format(javascriptISOString)
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", resp)
 }
 
 func returnWriteError(errMsg string, resp *opcuaWriteResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().Format(javascriptISOString)
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", resp)
 }
 
 func returnMethodError(errMsg string, resp *opcuaMethodResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().Format(javascriptISOString)
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", resp)
 }
 
 func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().Format(javascriptISOString)
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 }
 
