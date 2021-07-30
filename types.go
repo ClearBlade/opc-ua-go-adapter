@@ -18,11 +18,16 @@ type opcuaReadRequestMQTTMessage struct {
 }
 
 type opcuaReadResponseMQTTMessage struct {
-	Timestamp    string                 `json:"timestamp"`
-	Data         map[string]interface{} `json:"data"`
-	Success      bool                   `json:"success"`
-	StatusCode   uint32                 `json:"status_code"`
-	ErrorMessage string                 `json:"error_message"`
+	ServerTimestamp string                           `json:"server_timestamp"`
+	Data            map[string]opcuaReadResponseData `json:"data"`
+	Success         bool                             `json:"success"`
+	StatusCode      uint32                           `json:"status_code"`
+	ErrorMessage    string                           `json:"error_message"`
+}
+
+type opcuaReadResponseData struct {
+	Value           interface{} `json:"value"`
+	SourceTimestamp string      `json:"source_timestamp"`
 }
 
 type opcuaWriteRequestMQTTMessage struct {

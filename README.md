@@ -88,15 +88,36 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ### OPC UA Read Results Payload Format
  ```json
  {
-  "timestamp": "2021-07-09T00:39:25Z",
+  "server_timestamp": "2021-07-30T05:04:55Z",
   "data": {
-    "ns=3;i=1001": 20,
-    "ns=3;i=1002": 0.3681985,
-    "ns=3;i=1003": -2,
-    "ns=3;i=1004": 1.732051,
-    "ns=3;i=1005": 2,
-    "ns=3;i=1006": 1.333333
-  }
+    "ns=3;i=1001": {
+      "value": 6,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    },
+    "ns=3;i=1002": {
+      "value": -1.698198,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    },
+    "ns=3;i=1003": {
+      "value": -2,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    },
+    "ns=3;i=1004": {
+      "value": -1.732051,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    },
+    "ns=3;i=1005": {
+      "value": -2,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    },
+    "ns=3;i=1006": {
+      "value": -1.333333,
+      "source_timestamp": "2021-07-30T05:04:55Z"
+    }
+  },
+  "success": true,
+  "status_code": 0,
+  "error_message": ""
 }
  ```
 
@@ -185,7 +206,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ### OPC UA Subscription Delete Request Payload Format
 ```json
 {
-    "subscription_id": "the_subscription_id",
+    "subscription_id": 1,
 }
 ```
 

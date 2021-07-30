@@ -213,11 +213,11 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 func handleReadRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaReadResponseMQTTMessage{
-		Timestamp:    "",
-		Data:         make(map[string]interface{}),
-		Success:      true,
-		StatusCode:   0,
-		ErrorMessage: "",
+		ServerTimestamp: "",
+		Data:            make(map[string]opcuaReadResponseData),
+		Success:         true,
+		StatusCode:      0,
+		ErrorMessage:    "",
 	}
 
 	readReq := opcuaReadRequestMQTTMessage{}
@@ -255,8 +255,11 @@ func handleReadRequest(message *mqttTypes.Publish) {
 
 	for idx, result := range opcuaResp.Results {
 		if result.Status == ua.StatusOK {
-			mqttResp.Timestamp = result.ServerTimestamp.Format(time.RFC3339)
-			mqttResp.Data[readReq.NodeIDs[idx]] = result.Value.Value()
+			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(time.RFC3339)
+			mqttResp.Data[readReq.NodeIDs[idx]] = opcuaReadResponseData{
+				Value:           result.Value.Value(),
+				SourceTimestamp: result.SourceTimestamp.Format(time.RFC3339),
+			}
 		} else {
 			log.Printf("[ERROR] Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status)
 			returnReadError(fmt.Sprintf("Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status), &mqttResp)
@@ -753,7 +756,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.ServerTimestamp = time.Now().UTC().Format(time.RFC3339)
 	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", resp)
 }
 
