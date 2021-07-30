@@ -150,10 +150,11 @@ type opcuaSubscriptionRequestMQTTMessage struct {
 }
 
 type opcuaSubscriptionResponseMQTTMessage struct {
-	RequestType  SubscriptionOperationType `json:"request_type"`
-	Timestamp    string                    `json:"timestamp"`
-	Success      bool                      `json:"success"`
-	StatusCode   uint32                    `json:"status_code"`
-	ErrorMessage string                    `json:"error_message"`
-	Results      []interface{}             `json:"results"`
+	RequestType    SubscriptionOperationType `json:"request_type"`
+	SubscriptionID uint32                    `json:"subscription_id"`
+	Timestamp      string                    `json:"timestamp"`
+	Success        bool                      `json:"success"`
+	StatusCode     uint32                    `json:"status_code"`
+	ErrorMessage   string                    `json:"error_message"`
+	Results        []interface{}             `json:"results"`
 }

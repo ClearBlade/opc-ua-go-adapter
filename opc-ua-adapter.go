@@ -442,8 +442,10 @@ func handleSubscriptionRequest(message *mqttTypes.Publish) {
 
 	switch strings.ToLower(string(subReq.RequestType)) {
 	case string(SubscriptionCreate):
+		log.Println("[INFO] handleSubscriptionRequest - received create subscription request")
 		handleSubscriptionCreate(&subReq)
 	case string(SubscriptionDelete):
+		log.Println("[INFO] handleSubscriptionRequest - received delete subscription request")
 		handleSubscriptionDelete(&subReq)
 	default:
 		log.Printf("[ERROR] Invalid subscription request type: %s\n", subReq.RequestType)
@@ -511,6 +513,9 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
 	openSubscriptions[sub.SubscriptionID] = sub
+
+	// add subscription id to response
+	resp.SubscriptionID = sub.SubscriptionID
 
 	defer sub.Cancel()
 	log.Printf("[INFO] createSubscription - Created subscription with id %v", sub.SubscriptionID)
@@ -649,12 +654,13 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			switch x := res.Value.(type) {
 			case *ua.DataChangeNotification:
 				resp := opcuaSubscriptionResponseMQTTMessage{
-					RequestType:  SubscriptionPublish,
-					Timestamp:    time.Now().Format(javascriptISOString),
-					Success:      true,
-					StatusCode:   uint32(ua.StatusOK),
-					ErrorMessage: "",
-					Results:      []interface{}{},
+					RequestType:    SubscriptionPublish,
+					Timestamp:      time.Now().Format(javascriptISOString),
+					Success:        true,
+					StatusCode:     uint32(ua.StatusOK),
+					ErrorMessage:   "",
+					Results:        []interface{}{},
+					SubscriptionID: sub.SubscriptionID,
 				}
 
 				for _, item := range x.MonitoredItems {
@@ -668,12 +674,13 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
 			case *ua.EventNotificationList:
 				resp := opcuaSubscriptionResponseMQTTMessage{
-					RequestType:  SubscriptionPublish,
-					Timestamp:    time.Now().Format(javascriptISOString),
-					Success:      true,
-					StatusCode:   uint32(ua.StatusOK),
-					ErrorMessage: "",
-					Results:      []interface{}{},
+					RequestType:    SubscriptionPublish,
+					Timestamp:      time.Now().Format(javascriptISOString),
+					Success:        true,
+					StatusCode:     uint32(ua.StatusOK),
+					ErrorMessage:   "",
+					Results:        []interface{}{},
+					SubscriptionID: sub.SubscriptionID,
 				}
 
 				for _, item := range x.Events {
@@ -706,20 +713,28 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
 		//NodeID:       subReq.NodeID,
-		RequestType:  SubscriptionDelete,
-		Timestamp:    time.Now().Format(javascriptISOString),
-		Success:      true,
-		StatusCode:   0,
-		ErrorMessage: "",
+		RequestType:    SubscriptionDelete,
+		Timestamp:      time.Now().Format(javascriptISOString),
+		Success:        true,
+		StatusCode:     0,
+		ErrorMessage:   "",
+		SubscriptionID: parms.SubscriptionID,
 	}
 
 	//Get the open subscription from the map in storage, using the incoming subscription ID
+	if _, ok := openSubscriptions[parms.SubscriptionID]; !ok {
+		log.Printf("[ERROR] handleSubscriptionDelete - No active subscription for ID: %d\n", parms.SubscriptionID)
+		returnSubscribeError(fmt.Sprintf("No active subscription for ID: %d", parms.SubscriptionID), &resp)
+		return
+	}
+
 	err := openSubscriptions[parms.SubscriptionID].Cancel()
 	if err != nil {
 		log.Printf("[ERROR] handleSubscriptionDelete - Error occurred while deleting subscription: %s\n", err.Error())
 
 		//Publish error to platform
 		returnSubscribeError(err.Error(), &resp)
+		return
 	}
 
 	//Publish response to platform
