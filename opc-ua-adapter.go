@@ -301,13 +301,40 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	v, err := ua.NewVariant(float32(writeReq.Value.(float64)))
+	nodeType, err := getTagDataType(id)
 	if err != nil {
-		log.Printf("[ERROR] Failed to parses OPC UA Value: %s\n", err.Error())
+		log.Printf("[ERROR] Failed to get type for Node ID %s: %s\n", id.String(), err.Error())
 		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
-	log.Printf("%+v\n", v.Type())
+
+	switch *nodeType {
+	case ua.TypeIDBoolean:
+		writeReq.Value = writeReq.Value.(bool)
+	case ua.TypeIDDouble:
+		writeReq.Value = writeReq.Value.(float64)
+	case ua.TypeIDInt16:
+		writeReq.Value = int16(writeReq.Value.(float64))
+	case ua.TypeIDInt32:
+		writeReq.Value = int32(writeReq.Value.(float64))
+	case ua.TypeIDInt64:
+		writeReq.Value = int64(writeReq.Value.(float64))
+	case ua.TypeIDString:
+		writeReq.Value = writeReq.Value.(string)
+	case ua.TypeIDFloat:
+		writeReq.Value = float32(writeReq.Value.(float64))
+	default:
+		log.Printf("[ERROR] Unhandled node type: %s\n", nodeType.String())
+		returnWriteError("Unhandled node type: "+nodeType.String(), &mqttResp)
+		return
+	}
+
+	v, err := ua.NewVariant(writeReq.Value)
+	if err != nil {
+		log.Printf("[ERROR] Failed to parse OPC UA Value: %s\n", err.Error())
+		returnWriteError(err.Error(), &mqttResp)
+		return
+	}
 
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
@@ -329,14 +356,12 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	if resp.ResponseHeader.ServiceResult != ua.StatusOK {
-		log.Printf("[ERROR] non ok status returned from write: %d\n", resp.ResponseHeader.ServiceResult)
-		returnWriteError(fmt.Sprintf("Non OK status code returned from write: %d\n", resp.ResponseHeader.ServiceResult), &mqttResp)
+	if resp.Results[0] != ua.StatusOK {
+		log.Printf("[ERROR] non ok status returned from write: %s\n", resp.Results[0].Error())
+		mqttResp.StatusCode = uint32(resp.Results[0])
+		returnWriteError(fmt.Sprintf("Non OK status code returned from write: %s\n", resp.Results[0].Error()), &mqttResp)
 		return
 	}
-
-	log.Printf("%+v\n", resp.ResponseHeader)
-	log.Printf("%+v\n", resp.Results)
 
 	mqttResp.NodeID = writeReq.NodeID
 	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.UTC().Format(time.RFC3339)
@@ -345,6 +370,36 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
 
 	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", mqttResp)
+}
+
+func getTagDataType(nodeid *ua.NodeID) (*ua.TypeID, error) {
+	log.Printf("[INFO] getTagDataType - checking type for node id: %s\n", nodeid.String())
+
+	req := &ua.ReadRequest{
+		MaxAge:             2000,
+		NodesToRead:        []*ua.ReadValueID{},
+		TimestampsToReturn: ua.TimestampsToReturnBoth,
+	}
+
+	req.NodesToRead = append(req.NodesToRead, &ua.ReadValueID{
+		NodeID: nodeid,
+	})
+
+	opcuaResp, err := opcuaClient.Read(req)
+	if err != nil {
+		log.Printf("[ERROR] Read type request failed: %s\n", err.Error())
+		return nil, err
+	}
+
+	if opcuaResp.Results[0].Status != ua.StatusOK {
+		return nil, fmt.Errorf("Read type status not OK for node id %s: %v\n", nodeid.String(), opcuaResp.Results[0].Status)
+	}
+
+	log.Printf("[INFO] getTagDataType - type for node id %s: %s\n", nodeid.String(), opcuaResp.Results[0].Value.Type().String())
+
+	nodeType := opcuaResp.Results[0].Value.Type()
+
+	return &nodeType, nil
 }
 
 //OPC UA Method Service Set
@@ -688,7 +743,6 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					Results:        []interface{}{},
 					SubscriptionID: sub.SubscriptionID,
 				}
-
 				for _, item := range x.Events {
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
