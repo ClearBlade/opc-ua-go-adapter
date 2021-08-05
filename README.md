@@ -180,7 +180,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ### OPC UA Subscription Create Request Payload Format
 ```json
 {
-    "publish_interval": ,
+    "publish_interval": 1000,
     "lifetime": 25,
     "keepalive": "", //ISO formatted timestamp 
     "max_publish_notifications": true|false,
@@ -189,12 +189,12 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
       {
         "node_id": "ns=2;i=1001",
         "events": true|false,
-        "value": true|false
+        "values": true|false
       },
       {
         "node_id": "ns=3;i=1001",
         "events": true|false,
-        "value": true|false
+        "values": true|false
       },
       ...
     ],
@@ -206,7 +206,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ### OPC UA Subscription Delete Request Payload Format
 ```json
 {
-    "subscription_id": 1,
+    "subscription_id": {the_subscription_id}, //INTEGER
 }
 ```
 
@@ -265,6 +265,11 @@ All ClearBlade Adapters require a certain set of System specific variables to st
 | Device Service Account Token | N/A | `CB_SERVICE_ACCOUNT_TOKEN` | N/A |
 | Log Level | `logLevel` | N/A | `info` |
 | Adapter Config Collection Name | `adapterConfigCollection` | N/A | `adapter_config` |
+
+
+`opc-ua-go-adapter -systemKey=<SYSTEM_KEY> -systemSecret=<SYSTEM_SECRET> -platformURL=<PLATFORM_URL> -messagingURL=<MESSAGING_URL> -deviceName=<DEVICE_NAME> -password=<DEVICE_ACTIVE_KEY> -adapterConfigCollection=<COLLECTION_NAME> -logLevel=<LOG_LEVEL>`
+
+
 
 A System Key and System Secret will always be required to start the adapter, and it's recommended to always use a Device Service Account & Token for Adapters. 
 

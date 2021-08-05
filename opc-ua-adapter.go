@@ -46,7 +46,7 @@ var (
 	opcuaClient            *opcua.Client
 	openSubscriptions      = make(map[uint32]*opcua.Subscription)
 	clientHandle           uint32
-	clientHandleRequestMap = make(map[uint32]interface{})
+	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
 )
 
@@ -177,6 +177,7 @@ func initializeOPCUA() *opcua.Client {
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
 	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
+	//opcuaOpts = append(opcuaOpts, opcua.SessionTimeout(0))
 
 	ctx := context.Background()
 
@@ -261,8 +262,8 @@ func handleReadRequest(message *mqttTypes.Publish) {
 				SourceTimestamp: result.SourceTimestamp.Format(time.RFC3339),
 			}
 		} else {
-			log.Printf("[ERROR] Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status)
-			returnReadError(fmt.Sprintf("Read Status not OK for node id %s: %v\n", readReq.NodeIDs[idx], result.Status), &mqttResp)
+			log.Printf("[ERROR] Read Status not OK for node id %s: %+v\n", readReq.NodeIDs[idx], result.Status)
+			returnReadError(fmt.Sprintf("Read Status not OK for node id %s: %+v\n", readReq.NodeIDs[idx], result.Status), &mqttResp)
 			return
 		}
 	}
@@ -392,7 +393,7 @@ func getTagDataType(nodeid *ua.NodeID) (*ua.TypeID, error) {
 	}
 
 	if opcuaResp.Results[0].Status != ua.StatusOK {
-		return nil, fmt.Errorf("Read type status not OK for node id %s: %v\n", nodeid.String(), opcuaResp.Results[0].Status)
+		return nil, fmt.Errorf("read type status not OK for node id %s: %+v", nodeid.String(), opcuaResp.Results[0].Status)
 	}
 
 	log.Printf("[INFO] getTagDataType - type for node id %s: %s\n", nodeid.String(), opcuaResp.Results[0].Value.Type().String())
@@ -559,6 +560,9 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		Results:      []interface{}{},
 	}
 
+	log.Printf("[DEBUG] createSubscription - opcuaSubscriptionRequestMQTTMessage: %+v\n", subReq)
+	log.Printf("[DEBUG] createSubscription - opcua.SubscriptionParameters: %+v\n", subParms)
+
 	jsonString, _ := json.Marshal(*subReq.RequestParams)
 	parms := opcuaSubscriptionCreateParmsMQTTMessage{}
 	json.Unmarshal(jsonString, &parms)
@@ -574,18 +578,24 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
 	openSubscriptions[sub.SubscriptionID] = sub
+	clientHandleRequestMap[sub.SubscriptionID] = make(map[uint32]interface{})
+
+	log.Printf("[DEBUG] createSubscription - Subscription ID: %+v\n", sub)
 
 	// add subscription id to response
 	resp.SubscriptionID = sub.SubscriptionID
 
 	defer sub.Cancel()
-	log.Printf("[INFO] createSubscription - Created subscription with id %v", sub.SubscriptionID)
+	log.Printf("[INFO] createSubscription - Created subscription with id %d", sub.SubscriptionID)
 
 	//Now that we have a subscription, we need to add the monitored items
 	var miCreateRequests []*ua.MonitoredItemCreateRequest
 
 	errors := false
 	for _, item := range *parms.MonitoredItems {
+
+		log.Printf("[DEBUG] createSubscription - Item to monitor: %+v\n", item)
+
 		nodeId, err := ua.ParseNodeID(item.NodeID)
 		if err != nil {
 			log.Printf("[ERROR] createSubscription - Failed to parse OPC UA Node ID: %s\n", err.Error())
@@ -599,11 +609,13 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 		if item.Values {
+			log.Println("[ERROR] createSubscription - creating monitored item value request")
 			miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
-			clientHandleRequestMap[clientHandle] = item
+			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 		}
 
 		if item.Events {
+			log.Println("[ERROR] createSubscription - creating monitored item event request")
 			selects := make([]*ua.SimpleAttributeOperand, len(eventFieldNames))
 
 			for i, name := range eventFieldNames {
@@ -674,10 +686,15 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				},
 			}
 			miCreateRequests = append(miCreateRequests, req)
-			clientHandleRequestMap[clientHandle] = item
+			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 		}
 
+		//Add the client handle and request to the map
+		clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 	}
+
+	log.Printf("[DEBUG] createSubscription - Monitored item create requests: %+v\n", miCreateRequests)
+
 	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
 	if err != nil {
 		log.Printf("[ERROR] createSubscription - Error occurred while adding monitored items: %s\n", err.Error())
@@ -697,7 +714,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	//Publish create response
 	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
-	if errors == true {
+	if errors {
 		resp.ErrorMessage = "Failed to add all monitor items, see results"
 		resp.Success = false
 	}
@@ -709,7 +726,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		case res := <-notifyCh:
 			if res.Error != nil {
 				log.Printf("[ERROR] createSubscription - Unexpected error onsubscription: %s\n", res.Error.Error())
-				returnSubscribeError(fmt.Errorf("Unexpected error onsubscription: %s\n", res.Error.Error()).Error(), &resp)
+				returnSubscribeError(fmt.Errorf("unexpected error onsubscription: %s", res.Error.Error()).Error(), &resp)
 				continue
 			}
 			switch x := res.Value.(type) {
@@ -727,7 +744,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				for _, item := range x.MonitoredItems {
 					//Get the NodeId from the clientHandleRequestMap
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Value:  item.Value.Value.Value(),
 					})
 				}
@@ -745,7 +762,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				}
 				for _, item := range x.Events {
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Event: opcuaEventMessage{
 							EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
 							EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
@@ -788,8 +805,11 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 		return
 	}
 
+	log.Printf("[DEBUG] handleSubscriptionDelete - Deleting subscription: %d\n", parms.SubscriptionID)
 	err := openSubscriptions[parms.SubscriptionID].Cancel()
-	if err != nil {
+
+	if err != nil && err != ua.StatusOK {
+		//handleSubscriptionDelete - Error occurred while deleting subscription:  OK (0x0)
 		log.Printf("[ERROR] handleSubscriptionDelete - Error occurred while deleting subscription: %s\n", err.Error())
 
 		//Publish error to platform
@@ -797,11 +817,13 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 		return
 	}
 
+	log.Println("[DEBUG] handleSubscriptionDelete - Subscription deleted")
+
 	//Publish response to platform
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 
-	//Empty the clientHandleRequestMap
-	clientHandleRequestMap = make(map[uint32]interface{})
+	//Empty the clientHandleRequestMap for the current subscription
+	delete(clientHandleRequestMap, parms.SubscriptionID)
 
 	//Delete open subscription from map
 	delete(openSubscriptions, parms.SubscriptionID)
