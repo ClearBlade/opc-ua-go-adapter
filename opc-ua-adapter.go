@@ -309,30 +309,111 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	switch *nodeType {
-	case ua.TypeIDBoolean:
-		writeReq.Value = writeReq.Value.(bool)
-	case ua.TypeIDDouble:
-		writeReq.Value = writeReq.Value.(float64)
-	case ua.TypeIDInt16:
-		writeReq.Value = int16(writeReq.Value.(float64))
-	case ua.TypeIDInt32:
-		writeReq.Value = int32(writeReq.Value.(float64))
-	case ua.TypeIDInt64:
-		writeReq.Value = int64(writeReq.Value.(float64))
-	case ua.TypeIDString:
-		writeReq.Value = writeReq.Value.(string)
-	case ua.TypeIDFloat:
-		writeReq.Value = float32(writeReq.Value.(float64))
+	switch val := writeReq.Value.(type) {
+	case []interface{}:
+		switch *nodeType {
+		case ua.TypeIDBoolean:
+			convertedArray := make([]bool, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(bool))
+			}
+		case ua.TypeIDDouble:
+			convertedArray := make([]float64, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(float64))
+			}
+			writeReq.Value = convertedArray
+		case ua.TypeIDInt16:
+			convertedArray := make([]int16, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(int16))
+			}
+			writeReq.Value = convertedArray
+		case ua.TypeIDInt32:
+			convertedArray := make([]int32, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(int32))
+			}
+			writeReq.Value = convertedArray
+		case ua.TypeIDInt64:
+			convertedArray := make([]int64, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(int64))
+			}
+		case ua.TypeIDString:
+			convertedArray := make([]string, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(string))
+			}
+			writeReq.Value = convertedArray
+		case ua.TypeIDFloat:
+			convertedArray := make([]float32, 0)
+			for _, i := range val {
+				v, err := getConvertedValue(nodeType, i)
+				if err != nil {
+					log.Println("[ERROR] " + err.Error())
+					returnWriteError(err.Error(), &mqttResp)
+					return
+				}
+				convertedArray = append(convertedArray, v.(float32))
+			}
+			writeReq.Value = convertedArray
+		default:
+			log.Printf("[ERROR] Unhandled node type: " + nodeType.String())
+			return
+		}
+	case interface{}:
+		val, err = getConvertedValue(nodeType, val)
+		if err != nil {
+			log.Println("[ERROR] " + err.Error())
+			returnWriteError(err.Error(), &mqttResp)
+			return
+		}
 	default:
-		log.Printf("[ERROR] Unhandled node type: %s\n", nodeType.String())
-		returnWriteError("Unhandled node type: "+nodeType.String(), &mqttResp)
+		log.Printf("[ERROR] Unexpected type for write value: %T\n", val)
+		returnWriteError(fmt.Sprintf("Unexpected type for write value: %T", val), &mqttResp)
 		return
 	}
 
-	v, err := ua.NewVariant(writeReq.Value)
+	variant, err := ua.NewVariant(writeReq.Value)
 	if err != nil {
-		log.Printf("[ERROR] Failed to parse OPC UA Value: %s\n", err.Error())
+		log.Printf("[ERROR] Failed to create new variant: %s\n", err.Error())
 		returnWriteError(err.Error(), &mqttResp)
 		return
 	}
@@ -344,7 +425,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 				AttributeID: ua.AttributeIDValue,
 				Value: &ua.DataValue{
 					EncodingMask: ua.DataValueValue,
-					Value:        v,
+					Value:        variant,
 				},
 			},
 		},
@@ -371,6 +452,47 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
 
 	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", mqttResp)
+}
+
+func getConvertedValue(nodeType *ua.TypeID, value interface{}) (interface{}, error) {
+	switch *nodeType {
+	case ua.TypeIDBoolean:
+		return value.(bool), nil
+	case ua.TypeIDDateTime:
+		return value.(string), nil
+	case ua.TypeIDDouble:
+		return value.(float64), nil
+	case ua.TypeIDFloat:
+		return float32(value.(float64)), nil
+	case ua.TypeIDGUID:
+		return value.(string), nil
+	case ua.TypeIDInt16:
+		return int16(value.(float64)), nil
+	case ua.TypeIDInt32:
+		return int32(value.(float64)), nil
+	case ua.TypeIDInt64:
+		return int64(value.(float64)), nil
+	case ua.TypeIDLocalizedText:
+		return value.(string), nil
+	case ua.TypeIDNodeID:
+		return value.(string), nil
+	case ua.TypeIDQualifiedName:
+		return value.(string), nil
+	case ua.TypeIDString:
+		return value.(string), nil
+	case ua.TypeIDUint16:
+		return uint16(value.(float64)), nil
+	case ua.TypeIDUint32:
+		return uint32(value.(float64)), nil
+	case ua.TypeIDUint64:
+		return uint64(value.(float64)), nil
+	case ua.TypeIDVariant:
+		return value.(bool), nil
+	case ua.TypeIDXMLElement:
+		return value.(string), nil
+	default:
+		return nil, fmt.Errorf("Unhandled node type: " + nodeType.String())
+	}
 }
 
 func getTagDataType(nodeid *ua.NodeID) (*ua.TypeID, error) {
