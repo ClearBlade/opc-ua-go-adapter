@@ -47,7 +47,7 @@ var (
 	openSubscriptions      = make(map[uint32]*opcua.Subscription)
 	clientHandle           uint32
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
-	eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
+	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 )
 
 func main() {
@@ -886,11 +886,15 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Event: opcuaEventMessage{
-							EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
-							EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
-							Severity:  uint32(item.EventFields[2].Value().(uint16)),
-							Time:      item.EventFields[3].Value().(time.Time).UTC().Format(time.RFC3339),
-							Message:   item.EventFields[4].Value().(*ua.LocalizedText).Text,
+							EventID:     hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
+							EventType:   id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
+							SourceNode:  item.EventFields[2].Value().(*ua.NodeID).String(),
+							SourceName:  item.EventFields[3].Value().(string),
+							Time:        item.EventFields[4].Value().(time.Time).UTC().Format(time.RFC3339),
+							ReceiveTime: item.EventFields[5].Value().(time.Time).UTC().Format(time.RFC3339),
+							LocalTime:   item.EventFields[6].Value(),
+							Message:     item.EventFields[7].Value().(*ua.LocalizedText).Text,
+							Severity:    uint32(item.EventFields[8].Value().(uint16)),
 						},
 					})
 				}

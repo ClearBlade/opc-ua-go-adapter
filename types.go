@@ -142,11 +142,15 @@ type opcuaMonitoredItemNotificationMQTTMessage struct {
 
 //eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
 type opcuaEventMessage struct {
-	EventID   string `json:"event_id"`
-	EventType string `json:"event_type"`
-	Severity  uint32 `json:"severity"`
-	Time      string `json:"time"`
-	Message   string `json:"message"`
+	EventID     string      `json:"event_id"`
+	EventType   string      `json:"event_type"`
+	SourceNode  string      `json:"source_node"`
+	SourceName  string      `json:"source_name"`
+	Severity    uint32      `json:"severity"`
+	Time        string      `json:"time"`
+	ReceiveTime string      `json:"receive_time"`
+	LocalTime   interface{} `json:"local_time"`
+	Message     string      `json:"message"`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {
