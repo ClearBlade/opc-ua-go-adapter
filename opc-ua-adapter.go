@@ -323,6 +323,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 				}
 				convertedArray = append(convertedArray, v.(bool))
 			}
+			writeReq.Value = convertedArray
 		case ua.TypeIDDouble:
 			convertedArray := make([]float64, 0)
 			for _, i := range val {
@@ -370,6 +371,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 				}
 				convertedArray = append(convertedArray, v.(int64))
 			}
+			writeReq.Value = convertedArray
 		case ua.TypeIDString:
 			convertedArray := make([]string, 0)
 			for _, i := range val {
@@ -399,7 +401,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 			return
 		}
 	case interface{}:
-		val, err = getConvertedValue(nodeType, val)
+		_, err = getConvertedValue(nodeType, val)
 		if err != nil {
 			log.Println("[ERROR] " + err.Error())
 			returnWriteError(err.Error(), &mqttResp)
@@ -420,7 +422,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
-			&ua.WriteValue{
+			{
 				NodeID:      id,
 				AttributeID: ua.AttributeIDValue,
 				Value: &ua.DataValue{
