@@ -457,18 +457,38 @@ func getConvertedValue(nodeType *ua.TypeID, value interface{}) (interface{}, err
 	switch *nodeType {
 	case ua.TypeIDBoolean:
 		return value.(bool), nil
+	case ua.TypeIDDateTime:
+		return value.(string), nil
 	case ua.TypeIDDouble:
 		return value.(float64), nil
+	case ua.TypeIDFloat:
+		return float32(value.(float64)), nil
+	case ua.TypeIDGUID:
+		return value.(string), nil
 	case ua.TypeIDInt16:
 		return int16(value.(float64)), nil
 	case ua.TypeIDInt32:
 		return int32(value.(float64)), nil
 	case ua.TypeIDInt64:
 		return int64(value.(float64)), nil
+	case ua.TypeIDLocalizedText:
+		return value.(string), nil
+	case ua.TypeIDNodeID:
+		return value.(string), nil
+	case ua.TypeIDQualifiedName:
+		return value.(string), nil
 	case ua.TypeIDString:
 		return value.(string), nil
-	case ua.TypeIDFloat:
-		return float32(value.(float64)), nil
+	case ua.TypeIDUint16:
+		return uint16(value.(float64)), nil
+	case ua.TypeIDUint32:
+		return uint32(value.(float64)), nil
+	case ua.TypeIDUint64:
+		return uint64(value.(float64)), nil
+	case ua.TypeIDVariant:
+		return value.(bool), nil
+	case ua.TypeIDXMLElement:
+		return value.(string), nil
 	default:
 		return nil, fmt.Errorf("Unhandled node type: " + nodeType.String())
 	}
