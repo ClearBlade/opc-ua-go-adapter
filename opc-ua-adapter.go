@@ -544,8 +544,8 @@ func handleSubscriptionCreate(subReq *opcuaSubscriptionRequestMQTTMessage) {
 		subParms.Priority = *parms.Priority
 	}
 
-	//Create the subscription in a goroutine since we could have more than one subscription created
-	go createSubscription(subReq, subParms)
+	//Create the subscription
+	createSubscription(subReq, subParms)
 }
 
 func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *opcua.SubscriptionParameters) {
@@ -578,6 +578,8 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
 	openSubscriptions[sub.SubscriptionID] = sub
+
+	//Create a map in the clientHandleRequestMap to store the client handles, use the SubscriptionID as the key
 	clientHandleRequestMap[sub.SubscriptionID] = make(map[uint32]interface{})
 
 	log.Printf("[DEBUG] createSubscription - Subscription ID: %+v\n", sub)
@@ -585,21 +587,49 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	// add subscription id to response
 	resp.SubscriptionID = sub.SubscriptionID
 
-	defer sub.Cancel()
 	log.Printf("[INFO] createSubscription - Created subscription with id %d", sub.SubscriptionID)
 
 	//Now that we have a subscription, we need to add the monitored items
+	miCreateRequests := createMonitoredItems(sub, parms.MonitoredItems, &resp)
+	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
+	if err != nil {
+		log.Printf("[ERROR] createSubscription - Error occurred while adding monitored items: %s\n", err.Error())
+		returnSubscribeError(err.Error(), &resp)
+		return //TODO - Should we do this? Need to research whether or not a partial success is possible
+	}
+
+	log.Printf("[INFO] createSubscription - Added all monitored items to subscription")
+
+	//See if any errors were encountered and add an appropriate error message to the response
+	errors := false
+	for _, result := range res.Results {
+		if result.StatusCode != ua.StatusOK {
+			log.Printf("[ERROR] createSubscription - Failed to add monitor item with status code: %d\n", result.StatusCode)
+			errors = true
+		}
+	}
+	if errors {
+		resp.ErrorMessage = "Failed to add all monitor items, see results"
+		resp.Success = false
+	}
+
+	//Publish create response
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", &resp)
+
+	//Start the publish loop in a goroutine
+	go publishLoop(&resp, sub)
+}
+
+func createMonitoredItems(sub *opcua.Subscription, items *[]opcuaMonitoredItemCreateMQTTMessage, resp *opcuaSubscriptionResponseMQTTMessage) []*ua.MonitoredItemCreateRequest {
 	var miCreateRequests []*ua.MonitoredItemCreateRequest
 
-	errors := false
-	for _, item := range *parms.MonitoredItems {
-
-		log.Printf("[DEBUG] createSubscription - Item to monitor: %+v\n", item)
+	for _, item := range *items {
+		log.Printf("[DEBUG] addMonitoredItemsToSubscription - Item to monitor: %+v\n", item)
 
 		nodeId, err := ua.ParseNodeID(item.NodeID)
 		if err != nil {
-			log.Printf("[ERROR] createSubscription - Failed to parse OPC UA Node ID: %s\n", err.Error())
-			errors = true
+			log.Printf("[ERROR] addMonitoredItemsToSubscription - Failed to parse OPC UA Node ID: %s\n", err.Error())
 			resp.Results = append(resp.Results, opcuaMonitoredItemCreateResultMQTTMessage{
 				NodeID:     item.NodeID,
 				StatusCode: uint32(ua.StatusBadNodeIDInvalid),
@@ -609,177 +639,157 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 		if item.Values {
-			log.Println("[ERROR] createSubscription - creating monitored item value request")
+			log.Println("[ERROR] addMonitoredItemsToSubscription - creating monitored item value request")
 			miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
 			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 		}
 
 		if item.Events {
-			log.Println("[ERROR] createSubscription - creating monitored item event request")
-			selects := make([]*ua.SimpleAttributeOperand, len(eventFieldNames))
-
-			for i, name := range eventFieldNames {
-				selects[i] = &ua.SimpleAttributeOperand{
-					TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
-					BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: name}},
-					AttributeID:      ua.AttributeIDValue,
-				}
-			}
-
-			wheres := &ua.ContentFilter{
-				Elements: []*ua.ContentFilterElement{
-					{
-						FilterOperator: ua.FilterOperatorGreaterThanOrEqual,
-						FilterOperands: []*ua.ExtensionObject{
-							{
-								EncodingMask: 1,
-								TypeID: &ua.ExpandedNodeID{
-									NodeID: ua.NewNumericNodeID(0, id.SimpleAttributeOperand_Encoding_DefaultBinary),
-								},
-								Value: ua.SimpleAttributeOperand{
-									TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
-									BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: "Severity"}},
-									AttributeID:      ua.AttributeIDValue,
-								},
-							},
-							{
-								EncodingMask: 1,
-								TypeID: &ua.ExpandedNodeID{
-									NodeID: ua.NewNumericNodeID(0, id.LiteralOperand_Encoding_DefaultBinary),
-								},
-								Value: ua.LiteralOperand{
-									Value: ua.MustVariant(uint16(0)),
-								},
-							},
-						},
-					},
-				},
-			}
-
-			filter := ua.EventFilter{
-				SelectClauses: selects,
-				WhereClause:   wheres,
-			}
-
-			filterExtObj := ua.ExtensionObject{
-				EncodingMask: ua.ExtensionObjectBinary,
-				TypeID: &ua.ExpandedNodeID{
-					NodeID: ua.NewNumericNodeID(0, id.EventFilter_Encoding_DefaultBinary),
-				},
-				Value: filter,
-			}
-
-			handle := getClientHandle()
-			req := &ua.MonitoredItemCreateRequest{
-				ItemToMonitor: &ua.ReadValueID{
-					NodeID:       nodeId,
-					AttributeID:  ua.AttributeIDEventNotifier,
-					DataEncoding: &ua.QualifiedName{},
-				},
-				MonitoringMode: ua.MonitoringModeReporting,
-				RequestedParameters: &ua.MonitoringParameters{
-					ClientHandle:     handle,
-					DiscardOldest:    true,
-					Filter:           &filterExtObj,
-					QueueSize:        10,
-					SamplingInterval: 1.0,
-				},
-			}
-			miCreateRequests = append(miCreateRequests, req)
-			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
+			miCreateRequests = append(miCreateRequests, createMonitoredItemEventRequests(nodeId, &item))
 		}
 
 		//Add the client handle and request to the map
 		clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 	}
 
-	log.Printf("[DEBUG] createSubscription - Monitored item create requests: %+v\n", miCreateRequests)
+	return miCreateRequests
+}
 
-	res, err := sub.Monitor(ua.TimestampsToReturnBoth, miCreateRequests...)
-	if err != nil {
-		log.Printf("[ERROR] createSubscription - Error occurred while adding monitored items: %s\n", err.Error())
-		returnSubscribeError(err.Error(), &resp)
-		return //TODO - Should we do this? Need to research whether or not a partial success is possible
-	}
+func createMonitoredItemEventRequests(nodeId *ua.NodeID, item *opcuaMonitoredItemCreateMQTTMessage) *ua.MonitoredItemCreateRequest {
+	log.Println("[ERROR] addMonitoredItemsToSubscription - creating monitored item event request")
+	selects := make([]*ua.SimpleAttributeOperand, len(eventFieldNames))
 
-	//See if any errors were encountered
-	for _, result := range res.Results {
-		if result.StatusCode != ua.StatusOK {
-			log.Printf("[ERROR] createSubscription - Failed to add monitor item with status code: %d\n", result.StatusCode)
-			errors = true
+	for i, name := range eventFieldNames {
+		selects[i] = &ua.SimpleAttributeOperand{
+			TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
+			BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: name}},
+			AttributeID:      ua.AttributeIDValue,
 		}
 	}
-	log.Printf("[INFO] createSubscription - Added all monitored items")
 
-	//Publish create response
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
-
-	if errors {
-		resp.ErrorMessage = "Failed to add all monitor items, see results"
-		resp.Success = false
-	}
-
-	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", &resp)
-
-	for {
-		select {
-		case res := <-notifyCh:
-			if res.Error != nil {
-				log.Printf("[ERROR] createSubscription - Unexpected error onsubscription: %s\n", res.Error.Error())
-				returnSubscribeError(fmt.Errorf("unexpected error onsubscription: %s", res.Error.Error()).Error(), &resp)
-				continue
-			}
-			switch x := res.Value.(type) {
-			case *ua.DataChangeNotification:
-				resp := opcuaSubscriptionResponseMQTTMessage{
-					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().UTC().Format(time.RFC3339),
-					Success:        true,
-					StatusCode:     uint32(ua.StatusOK),
-					ErrorMessage:   "",
-					Results:        []interface{}{},
-					SubscriptionID: sub.SubscriptionID,
-				}
-
-				for _, item := range x.MonitoredItems {
-					//Get the NodeId from the clientHandleRequestMap
-					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
-						Value:  item.Value.Value.Value(),
-					})
-				}
-
-				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
-			case *ua.EventNotificationList:
-				resp := opcuaSubscriptionResponseMQTTMessage{
-					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().UTC().Format(time.RFC3339),
-					Success:        true,
-					StatusCode:     uint32(ua.StatusOK),
-					ErrorMessage:   "",
-					Results:        []interface{}{},
-					SubscriptionID: sub.SubscriptionID,
-				}
-				for _, item := range x.Events {
-					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
-						Event: opcuaEventMessage{
-							EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
-							EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
-							Severity:  uint32(item.EventFields[2].Value().(uint16)),
-							Time:      item.EventFields[3].Value().(time.Time).UTC().Format(time.RFC3339),
-							Message:   item.EventFields[4].Value().(*ua.LocalizedText).Text,
+	wheres := &ua.ContentFilter{
+		Elements: []*ua.ContentFilterElement{
+			{
+				FilterOperator: ua.FilterOperatorGreaterThanOrEqual,
+				FilterOperands: []*ua.ExtensionObject{
+					{
+						EncodingMask: 1,
+						TypeID: &ua.ExpandedNodeID{
+							NodeID: ua.NewNumericNodeID(0, id.SimpleAttributeOperand_Encoding_DefaultBinary),
 						},
-					})
-				}
+						Value: ua.SimpleAttributeOperand{
+							TypeDefinitionID: ua.NewNumericNodeID(0, id.BaseEventType),
+							BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: "Severity"}},
+							AttributeID:      ua.AttributeIDValue,
+						},
+					},
+					{
+						EncodingMask: 1,
+						TypeID: &ua.ExpandedNodeID{
+							NodeID: ua.NewNumericNodeID(0, id.LiteralOperand_Encoding_DefaultBinary),
+						},
+						Value: ua.LiteralOperand{
+							Value: ua.MustVariant(uint16(0)),
+						},
+					},
+				},
+			},
+		},
+	}
 
-				publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
-			default:
-				log.Printf("[INFO] createSubscription - Unimplemented response type on subscription: %s\n", res.Value)
-				returnSubscribeError("Unimplemented response type on subscription", &resp)
+	filter := ua.EventFilter{
+		SelectClauses: selects,
+		WhereClause:   wheres,
+	}
+
+	filterExtObj := ua.ExtensionObject{
+		EncodingMask: ua.ExtensionObjectBinary,
+		TypeID: &ua.ExpandedNodeID{
+			NodeID: ua.NewNumericNodeID(0, id.EventFilter_Encoding_DefaultBinary),
+		},
+		Value: filter,
+	}
+
+	handle := getClientHandle()
+	return &ua.MonitoredItemCreateRequest{
+		ItemToMonitor: &ua.ReadValueID{
+			NodeID:       nodeId,
+			AttributeID:  ua.AttributeIDEventNotifier,
+			DataEncoding: &ua.QualifiedName{},
+		},
+		MonitoringMode: ua.MonitoringModeReporting,
+		RequestedParameters: &ua.MonitoringParameters{
+			ClientHandle:     handle,
+			DiscardOldest:    true,
+			Filter:           &filterExtObj,
+			QueueSize:        10,
+			SamplingInterval: 1.0,
+		},
+	}
+}
+
+func publishLoop(resp *opcuaSubscriptionResponseMQTTMessage, sub *opcua.Subscription) {
+	defer sub.Cancel()
+
+	for res := range sub.Notifs {
+		if res.Error != nil {
+			log.Printf("[ERROR] publishLoop - Unexpected error onsubscription: %s\n", res.Error.Error())
+			returnSubscribeError(fmt.Errorf("unexpected error onsubscription: %s", res.Error.Error()).Error(), resp)
+			continue
+		}
+		switch x := res.Value.(type) {
+		case *ua.DataChangeNotification:
+			resp := opcuaSubscriptionResponseMQTTMessage{
+				RequestType:    SubscriptionPublish,
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				Success:        true,
+				StatusCode:     uint32(ua.StatusOK),
+				ErrorMessage:   "",
+				Results:        []interface{}{},
+				SubscriptionID: sub.SubscriptionID,
 			}
+
+			for _, item := range x.MonitoredItems {
+				//Get the NodeId from the clientHandleRequestMap
+				resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
+					NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+					Value:  item.Value.Value.Value(),
+				})
+			}
+
+			publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
+		case *ua.EventNotificationList:
+			resp := opcuaSubscriptionResponseMQTTMessage{
+				RequestType:    SubscriptionPublish,
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				Success:        true,
+				StatusCode:     uint32(ua.StatusOK),
+				ErrorMessage:   "",
+				Results:        []interface{}{},
+				SubscriptionID: sub.SubscriptionID,
+			}
+			for _, item := range x.Events {
+				resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
+					NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+					Event: opcuaEventMessage{
+						EventID:   hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
+						EventType: id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
+						Severity:  uint32(item.EventFields[2].Value().(uint16)),
+						Time:      item.EventFields[3].Value().(time.Time).UTC().Format(time.RFC3339),
+						Message:   item.EventFields[4].Value().(*ua.LocalizedText).Text,
+					},
+				})
+			}
+
+			publishJson(adapterConfig.TopicRoot+"/"+publishTopic+"/response", &resp)
+		default:
+			log.Printf("[INFO] publishLoop - Unimplemented response type on subscription: %s\n", res.Value)
+			returnSubscribeError("Unimplemented response type on subscription", resp)
 		}
 	}
+
+	//The channel was closed, ie. the subscription was cancelled
+	log.Println("[DEBUG] publishLoop - Channel closed (subscription cancelled), ending goroutine")
 }
 
 //OPC UA Subscription Service Set - Delete
@@ -801,9 +811,13 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	//Get the open subscription from the map in storage, using the incoming subscription ID
 	if _, ok := openSubscriptions[parms.SubscriptionID]; !ok {
 		log.Printf("[ERROR] handleSubscriptionDelete - No active subscription for ID: %d\n", parms.SubscriptionID)
-		returnSubscribeError(fmt.Sprintf("No active subscription for ID: %d", parms.SubscriptionID), &resp)
+		returnSubscribeError(fmt.Sprintf("No active subscription for subscription ID: %d", parms.SubscriptionID), &resp)
 		return
 	}
+
+	//Close the notifications channel to end the goroutine
+	//TODO - Need to see if this is needed.
+	close(openSubscriptions[parms.SubscriptionID].Notifs)
 
 	log.Printf("[DEBUG] handleSubscriptionDelete - Deleting subscription: %d\n", parms.SubscriptionID)
 	err := openSubscriptions[parms.SubscriptionID].Cancel()
