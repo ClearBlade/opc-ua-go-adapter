@@ -186,6 +186,15 @@ func initializeOPCUA() *opcua.Client {
 	if err := c.Connect(ctx); err != nil {
 		log.Fatalf("[FATAL] Failed to connect to OPC UA Server: %s\n", err.Error())
 	}
+
+	type customStruct struct {
+		Foo string
+		Bar uint32
+		Baz bool
+	}
+
+	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
+	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
 	return c
 }
 
@@ -256,6 +265,7 @@ func handleReadRequest(message *mqttTypes.Publish) {
 
 	for idx, result := range opcuaResp.Results {
 		if result.Status == ua.StatusOK {
+			log.Printf("extension object value: %+v\n", result.Value.ExtensionObject())
 			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(time.RFC3339)
 			mqttResp.Data[readReq.NodeIDs[idx]] = opcuaReadResponseData{
 				Value:           result.Value.Value(),
@@ -399,7 +409,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 			return
 		}
 	case interface{}:
-		val, err = getConvertedValue(nodeType, val)
+		writeReq.Value, err = getConvertedValue(nodeType, val)
 		if err != nil {
 			log.Println("[ERROR] " + err.Error())
 			returnWriteError(err.Error(), &mqttResp)
