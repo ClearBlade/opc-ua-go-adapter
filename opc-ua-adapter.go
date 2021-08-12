@@ -265,7 +265,6 @@ func handleReadRequest(message *mqttTypes.Publish) {
 
 	for idx, result := range opcuaResp.Results {
 		if result.Status == ua.StatusOK {
-			log.Printf("extension object value: %+v\n", result.Value.ExtensionObject())
 			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(time.RFC3339)
 			mqttResp.Data[readReq.NodeIDs[idx]] = opcuaReadResponseData{
 				Value:           result.Value.Value(),
