@@ -851,6 +851,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				returnSubscribeError(fmt.Errorf("unexpected error onsubscription: %s", res.Error.Error()).Error(), &resp)
 				continue
 			}
+			log.Printf("[DEBUG] received message on subscription response channel of type %T\n", res.Value)
 			switch x := res.Value.(type) {
 			case *ua.DataChangeNotification:
 				resp := opcuaSubscriptionResponseMQTTMessage{
@@ -865,6 +866,10 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 				for _, item := range x.MonitoredItems {
 					//Get the NodeId from the clientHandleRequestMap
+					if item.Value == nil {
+						log.Printf("[ERROR] item.Value is nil\n")
+					}
+					log.Printf("[DEBUG] item.Value: %+v\n", item.Value)
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Value:  item.Value.Value.Value(),
