@@ -868,12 +868,12 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					//Get the NodeId from the clientHandleRequestMap
 					if item.Value == nil {
 						log.Printf("[ERROR] item.Value is nil\n")
-						return
+						continue
 					}
 					log.Printf("[DEBUG] item.Value: %+v\n", item.Value)
 					if item.Value.Value == nil {
 						log.Println("[ERROR] item.Value.Value is nil")
-						return
+						continue
 					}
 					log.Printf("[DEBUG] item.Value.Value: %+v\n", item.Value.Value)
 					log.Printf("[DEBUG] item.Value.Value.String(): %s\n", item.Value.Value.String())
