@@ -863,23 +863,16 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					Results:        []interface{}{},
 					SubscriptionID: sub.SubscriptionID,
 				}
-				log.Println("[DEBUG] about to loop through monitored items")
 				for _, item := range x.MonitoredItems {
 					//Get the NodeId from the clientHandleRequestMap
 					if item.Value == nil {
 						log.Printf("[ERROR] item.Value is nil\n")
 						continue
 					}
-					log.Printf("[DEBUG] item.Value: %+v\n", item.Value)
 					if item.Value.Value == nil {
 						log.Println("[ERROR] item.Value.Value is nil")
 						continue
 					}
-					log.Printf("[DEBUG] item.Value.Value: %+v\n", item.Value.Value)
-					log.Printf("[DEBUG] item.Value.Value.String(): %s\n", item.Value.Value.String())
-					log.Printf("[DEBUG] item.Value.Value.Variant(): %+v\n", item.Value.Value.Variant())
-					log.Printf("[DEBUG] item.Value.Value.NodeID(): %+v\n", item.Value.Value.NodeID())
-					log.Printf("[DEBUG] item.Value.Value.Value(): %+v\n", item.Value.Value.Value())
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Value:  item.Value.Value.Value(),
