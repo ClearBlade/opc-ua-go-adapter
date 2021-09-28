@@ -67,13 +67,13 @@ func main() {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
+	// initialize OPC UA connection
+	opcuaClient = initializeOPCUA()
+
 	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
 	}
-
-	// initialize OPC UA connection
-	opcuaClient = initializeOPCUA()
 
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
