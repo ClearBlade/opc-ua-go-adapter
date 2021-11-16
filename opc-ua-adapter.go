@@ -20,6 +20,7 @@ import (
 	"github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
+	"github.com/pkg/errors"
 )
 
 // TODO
@@ -38,6 +39,7 @@ const (
 	methodTopic    = "method"
 	subscribeTopic = "subscribe"
 	publishTopic   = "publish"
+	browseTopic    = "browse"
 )
 
 var (
@@ -49,6 +51,21 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 )
+
+type NodeDef struct {
+	NodeID      *ua.NodeID
+	NodeClass   ua.NodeClass
+	BrowseName  string
+	Description string
+	AccessLevel ua.AccessLevelType
+	Path        string
+	DataType    string
+	Writable    bool
+	Unit        string
+	Scale       string
+	Min         string
+	Max         string
+}
 
 func main() {
 	err := adapter_library.ParseArguments(adapterName)
@@ -205,6 +222,9 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 	} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
 		go handleSubscriptionRequest(message)
+	} else if strings.Contains(message.Topic.Whole, browseTopic) {
+		log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
+		go handleBrowseRequest(message)
 	} else {
 		log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
 	}
@@ -963,6 +983,54 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	delete(openSubscriptions, parms.SubscriptionID)
 }
 
+func handleBrowseRequest(message *mqttTypes.Publish) {
+
+	mqttResp := opcuaBrowseResponseMQTTMessage{
+		NodeIDs:      make([]string, 0),
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Success:      true,
+		StatusCode:   0,
+		ErrorMessage: "",
+	}
+
+	browseReq := opcuaBrowseRequestMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &browseReq)
+	if err != nil {
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		returnBrowseError(err.Error(), &mqttResp)
+		return
+	}
+
+	if browseReq.RootNode == "" {
+		browseReq.RootNode = "i=85"
+	}
+
+	ctx := context.Background()
+
+	c := opcua.NewClient(adapterSettings.EndpointURL)
+	if err := c.Connect(ctx); err != nil {
+		log.Println(err)
+	}
+	defer c.Close()
+
+	id, err := ua.ParseNodeID(browseReq.RootNode)
+	if err != nil {
+		log.Printf("invalid node id: %s", err)
+	}
+
+	nodeList, err := browse(c.Node(id), "", 0)
+	if err != nil {
+		log.Println(err)
+	}
+
+	for _, s := range nodeList {
+		log.Println("NodeID: " + s.NodeID.String())
+		mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
+	}
+
+	publishJson(adapterConfig.TopicRoot+"/"+browseTopic+"/response", &mqttResp)
+}
+
 func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
@@ -991,6 +1059,13 @@ func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMess
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 }
 
+func returnBrowseError(errMsg string, resp *opcuaBrowseResponseMQTTMessage) {
+	resp.Success = false
+	resp.ErrorMessage = errMsg
+	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
+}
+
 // Publishes data to a topic
 func publishJson(topic string, data interface{}) {
 	b, err := json.Marshal(data)
@@ -1009,4 +1084,131 @@ func publishJson(topic string, data interface{}) {
 func getClientHandle() uint32 {
 	clientHandle++
 	return clientHandle
+}
+
+func join(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "." + b
+}
+
+func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
+	fmt.Printf("node:%s path:%q level:%d\n", n, path, level)
+	if level > 10 {
+		return nil, nil
+	}
+
+	attrs, err := n.Attributes(ua.AttributeIDNodeClass, ua.AttributeIDBrowseName, ua.AttributeIDDescription, ua.AttributeIDAccessLevel, ua.AttributeIDDataType)
+	if err != nil {
+		return nil, err
+	}
+
+	var def = NodeDef{
+		NodeID: n.ID,
+	}
+
+	switch err := attrs[0].Status; err {
+	case ua.StatusOK:
+		def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
+	default:
+		return nil, err
+	}
+
+	switch err := attrs[1].Status; err {
+	case ua.StatusOK:
+		def.BrowseName = attrs[1].Value.String()
+	default:
+		return nil, err
+	}
+
+	switch err := attrs[2].Status; err {
+	case ua.StatusOK:
+		def.Description = attrs[2].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
+
+	switch err := attrs[3].Status; err {
+	case ua.StatusOK:
+		def.AccessLevel = ua.AccessLevelType(attrs[3].Value.Int())
+		def.Writable = def.AccessLevel&ua.AccessLevelTypeCurrentWrite == ua.AccessLevelTypeCurrentWrite
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
+
+	switch err := attrs[4].Status; err {
+	case ua.StatusOK:
+		switch v := attrs[4].Value.NodeID().IntID(); v {
+		case id.DateTime:
+			def.DataType = "time.Time"
+		case id.Boolean:
+			def.DataType = "bool"
+		case id.SByte:
+			def.DataType = "int8"
+		case id.Int16:
+			def.DataType = "int16"
+		case id.Int32:
+			def.DataType = "int32"
+		case id.Byte:
+			def.DataType = "byte"
+		case id.UInt16:
+			def.DataType = "uint16"
+		case id.UInt32:
+			def.DataType = "uint32"
+		case id.UtcTime:
+			def.DataType = "time.Time"
+		case id.String:
+			def.DataType = "string"
+		case id.Float:
+			def.DataType = "float32"
+		case id.Double:
+			def.DataType = "float64"
+		default:
+			def.DataType = attrs[4].Value.NodeID().String()
+		}
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
+
+	def.Path = join(path, def.BrowseName)
+	fmt.Printf("%d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
+
+	var nodes []NodeDef
+	if def.NodeClass == ua.NodeClassVariable {
+		nodes = append(nodes, def)
+	}
+
+	browseChildren := func(refType uint32) error {
+		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
+		if err != nil {
+			return errors.Errorf("References: %d: %s", refType, err)
+		}
+		fmt.Printf("found %d child refs\n", len(refs))
+		for _, rn := range refs {
+			children, err := browse(rn, def.Path, level+1)
+			if err != nil {
+				return errors.Errorf("browse children: %s", err)
+			}
+			nodes = append(nodes, children...)
+		}
+		return nil
+	}
+
+	if err := browseChildren(id.HasComponent); err != nil {
+		return nil, err
+	}
+	if err := browseChildren(id.Organizes); err != nil {
+		return nil, err
+	}
+	if err := browseChildren(id.HasProperty); err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }

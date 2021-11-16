@@ -167,3 +167,15 @@ type opcuaSubscriptionResponseMQTTMessage struct {
 	ErrorMessage   string                    `json:"error_message"`
 	Results        []interface{}             `json:"results"`
 }
+
+type opcuaBrowseRequestMQTTMessage struct {
+	RootNode string `json:"root_node"`
+}
+
+type opcuaBrowseResponseMQTTMessage struct {
+	NodeIDs      []string `json:"node_ids"`
+	Timestamp    string   `json:"timestamp"`
+	Success      bool     `json:"success"`
+	StatusCode   uint32   `json:"status_code"`
+	ErrorMessage string   `json:"error_message"`
+}
