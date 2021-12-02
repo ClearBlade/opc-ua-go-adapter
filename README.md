@@ -77,7 +77,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
  * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
  * OPC UA Publish: {__TOPIC ROOT__}/publish/response
  * OPC UA Browse Request: {__TOPIC_ROOT__}/_edge/{EDGE_ID}/browse
- * OPC UA Browse Results: {__TOPIC_ROOT}/browse/response
+ * OPC UA Browse Results: {__TOPIC_ROOT__}/browse/response
 ## MQTT Message Structure
 
 ### OPC UA Read Request Payload Format
