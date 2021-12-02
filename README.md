@@ -76,6 +76,8 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
    ** create, publish, and delete are the only supported services in the opcua library being utilized
  * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
  * OPC UA Publish: {__TOPIC ROOT__}/publish/response
+ * OPC UA Browse Request: {__TOPIC_ROOT__}/_edge/{EDGE_ID}/browse
+ * OPC UA Browse Results: {__TOPIC_ROOT}/browse/response
 ## MQTT Message Structure
 
 ### OPC UA Read Request Payload Format
@@ -245,6 +247,24 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
       },
       ...
     ],
+}
+```
+
+### OPC UA Browse Request Payload Format
+```json
+{
+    "root_node": "ns=2;s=Dynamic", //the root node, STRING
+}
+```
+
+### OPC UA Browse Response Payload Format
+```json
+{
+    "node_ids":["ns=2;s=Dynamic/RandomInt32","ns=2;s=Dynamic/RandomInt64","ns=2;s=Dynamic/RandomFloat","ns=2;s=Dynamic/RandomDouble"],
+    "timestamp":"2021-11-16T17:18:02Z",
+    "success":true,
+    "status_code":0,
+    "error_message":""
 }
 ```
 
