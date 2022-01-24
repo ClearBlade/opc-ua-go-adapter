@@ -1,5 +1,9 @@
 package main
 
+import (
+	adapter_library "github.com/clearblade/adapter-go-library"
+)
+
 type opcuaAuthentication struct {
 	Type     string `json:"type"`
 	Username string `json:"username"`
@@ -173,9 +177,10 @@ type opcuaBrowseRequestMQTTMessage struct {
 }
 
 type opcuaBrowseResponseMQTTMessage struct {
-	NodeIDs      []string `json:"node_ids"`
-	Timestamp    string   `json:"timestamp"`
-	Success      bool     `json:"success"`
-	StatusCode   uint32   `json:"status_code"`
-	ErrorMessage string   `json:"error_message"`
+	NodeIDs          []string                         `json:"node_ids"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
+}
+
+type opcuaConnectionResponseMQTTMessage struct {
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 }
