@@ -313,50 +313,34 @@ func initializeOPCUA() *opcua.Client {
 
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
-	if strings.Contains(message.Topic.Whole, "response") {
-		log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
-	} else if strings.Contains(message.Topic.Whole, readTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
-		if opcuaConnected {
+	if opcuaConnected {
+		if strings.Contains(message.Topic.Whole, readTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
 			go handleReadRequest(message)
-		} else {
-			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
-		}
-	} else if strings.Contains(message.Topic.Whole, writeTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
-		if opcuaConnected {
+		} else if strings.Contains(message.Topic.Whole, writeTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
 			go handleWriteRequest(message)
-		} else {
-			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
-		}
-	} else if strings.Contains(message.Topic.Whole, methodTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
-		if opcuaConnected {
+		} else if strings.Contains(message.Topic.Whole, methodTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
 			go handleMethodRequest(message)
-		} else {
-			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
-		}
-	} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
-		if opcuaConnected {
+		} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
 			go handleSubscriptionRequest(message)
-		} else {
-			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
-		}
-	} else if strings.Contains(message.Topic.Whole, browseTopic) {
-		log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
-		if opcuaConnected {
+		} else if strings.Contains(message.Topic.Whole, browseTopic) {
+			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
 			go handleBrowseRequest(message)
-		} else {
-			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
 		}
-
-	} else if strings.Contains(message.Topic.Whole, connectTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
-		go handleConnectRequest(message)
 	} else {
-		log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+		if strings.Contains(message.Topic.Whole, "response") {
+			log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
+		} else if strings.Contains(message.Topic.Whole, connectTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
+			go handleConnectRequest(message)
+		} else {
+			log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+		}
 	}
+
 }
 
 // OPC UA Attribute Service Set - read
