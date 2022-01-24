@@ -33,15 +33,21 @@ import (
 //
 
 const (
-	adapterName    = "opc-ua-adapter"
-	appuri         = "urn:cb-opc-ua-adapter:client"
-	readTopic      = "read"
-	writeTopic     = "write"
-	methodTopic    = "method"
-	subscribeTopic = "subscribe"
-	publishTopic   = "publish"
-	browseTopic    = "browse"
-	connectTopic   = "connect"
+	adapterName       = "opc-ua-adapter"
+	appuri            = "urn:cb-opc-ua-adapter:client"
+	readTopic         = "read"
+	writeTopic        = "write"
+	methodTopic       = "method"
+	subscribeTopic    = "subscribe"
+	publishTopic      = "publish"
+	browseTopic       = "browse"
+	connectTopic      = "connect"
+	ConnectionPending = "ConnectionPending"
+	ConnectionFailed  = "ConnectionFailed"
+	ConnectionSuccess = "ConnectionSuccess"
+	BrowsePending     = "BrowsePending"
+	BrowseFailed      = "BrowseFailed"
+	BrowseSuccess     = "BrowseSuccess"
 )
 
 var (
@@ -52,6 +58,7 @@ var (
 	clientHandle           uint32
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
+	opcuaConnected         = false
 )
 
 type NodeDef struct {
@@ -81,14 +88,12 @@ func main() {
 		log.Fatalf("[FATAL] Failed to initialize: %s\n", err.Error())
 	}
 
-	// log.Println("here3------------------------------------------------------------------")
 	adapterSettings = &opcuaAdapterSettings{}
 	err = json.Unmarshal([]byte(adapterConfig.AdapterSettings), adapterSettings)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
-	// log.Println("here4------------------------------------------------------------------")
 	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
@@ -117,13 +122,15 @@ func main() {
 func initializeOPCUA() *opcua.Client {
 	log.Println("[INFO] initializeOPCUA - Creating OPC UA Session")
 
+	opcuaConnected = false
+
 	if adapter_library.Args.LogLevel == "debug" {
 		debug.Enable = true
 	}
 
 	connectionStatus := adapter_library.ConnectionStatus{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Status:    adapter_library.ConnectionPending,
+		Status:    ConnectionPending,
 	}
 
 	mqttResp := opcuaConnectionResponseMQTTMessage{
@@ -140,7 +147,7 @@ func initializeOPCUA() *opcua.Client {
 	// get a list of endpoints for target server
 	endpoints, err := opcua.GetEndpoints(context.Background(), adapterSettings.EndpointURL)
 	if err != nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to get OPC UA Server endpoints: " + err.Error()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -161,7 +168,7 @@ func initializeOPCUA() *opcua.Client {
 		authMode = ua.UserTokenTypeUserName
 		opcuaOpts = append(opcuaOpts, opcua.AuthUsername(adapterSettings.Authentication.Username, adapterSettings.Authentication.Password))
 	case "certificate":
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Certificate auth type not implemented yet"
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -171,7 +178,7 @@ func initializeOPCUA() *opcua.Client {
 		token.Wait()
 		log.Fatalln("[FATAL] Certificate auth type not implemented yet")
 	default:
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid auth type: " + adapterSettings.Authentication.Type
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -192,7 +199,7 @@ func initializeOPCUA() *opcua.Client {
 	case "signandencrypt":
 		secMode = ua.MessageSecurityModeSignAndEncrypt
 	default:
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security mode: " + adapterSettings.SecurityMode
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -216,7 +223,7 @@ func initializeOPCUA() *opcua.Client {
 		secPolicy = ua.SecurityPolicyURIPrefix + "Basic256Sha256"
 		certsRequired = true
 	default:
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security policy: " + adapterSettings.SecurityPolicy
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -231,7 +238,7 @@ func initializeOPCUA() *opcua.Client {
 		generateCert(appuri, 2048, "cert.pem", "key.pem")
 		c, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 		if err != nil {
-			mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+			mqttResp.ConnectionStatus.Status = ConnectionFailed
 			mqttResp.ConnectionStatus.ErrorMessage = "Failed to load certificates: " + err.Error()
 			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 			token, pubErr = returnConnectionMessage(&mqttResp)
@@ -243,7 +250,7 @@ func initializeOPCUA() *opcua.Client {
 		}
 		pk, ok := c.PrivateKey.(*rsa.PrivateKey)
 		if !ok {
-			mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+			mqttResp.ConnectionStatus.Status = ConnectionFailed
 			mqttResp.ConnectionStatus.ErrorMessage = "Invalid Private key: " + err.Error()
 			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 			token, pubErr = returnConnectionMessage(&mqttResp)
@@ -264,7 +271,7 @@ func initializeOPCUA() *opcua.Client {
 		}
 	}
 	if serverEndpoint == nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to find a matching server endpoint with sec-policy " + secMode.String() + " and sec-mode " + secMode.String()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -284,7 +291,7 @@ func initializeOPCUA() *opcua.Client {
 	log.Printf("[INFO] Connecting to OPC server address %s\n", adapterSettings.EndpointURL)
 	c := opcua.NewClient(adapterSettings.EndpointURL, opcuaOpts...)
 	if err := c.Connect(ctx); err != nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.ConnectionFailed
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to connect to OPC UA Server: " + err.Error()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr = returnConnectionMessage(&mqttResp)
@@ -294,12 +301,13 @@ func initializeOPCUA() *opcua.Client {
 		token.Wait()
 		log.Fatalf("[FATAL] Failed to connect to OPC UA Server: %s\n", err.Error())
 	}
-	mqttResp.ConnectionStatus.Status = adapter_library.ConnectionSuccess
+	mqttResp.ConnectionStatus.Status = ConnectionSuccess
 	mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	_, pubErr = returnConnectionMessage(&mqttResp)
 	if pubErr != nil {
 		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
+	opcuaConnected = true
 	return c
 }
 
@@ -309,19 +317,40 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 		log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
 	} else if strings.Contains(message.Topic.Whole, readTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
-		go handleReadRequest(message)
+		if opcuaConnected {
+			go handleReadRequest(message)
+		} else {
+			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
+		}
 	} else if strings.Contains(message.Topic.Whole, writeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
-		go handleWriteRequest(message)
+		if opcuaConnected {
+			go handleWriteRequest(message)
+		} else {
+			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
+		}
 	} else if strings.Contains(message.Topic.Whole, methodTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
-		go handleMethodRequest(message)
+		if opcuaConnected {
+			go handleMethodRequest(message)
+		} else {
+			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
+		}
 	} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
-		go handleSubscriptionRequest(message)
+		if opcuaConnected {
+			go handleSubscriptionRequest(message)
+		} else {
+			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
+		}
 	} else if strings.Contains(message.Topic.Whole, browseTopic) {
 		log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
-		go handleBrowseRequest(message)
+		if opcuaConnected {
+			go handleBrowseRequest(message)
+		} else {
+			log.Println("[INFO] cbMessageHandler - not connected to OPC UA, ignoring")
+		}
+
 	} else if strings.Contains(message.Topic.Whole, connectTopic) {
 		log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
 		go handleConnectRequest(message)
@@ -1087,7 +1116,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 	connectionStatus := adapter_library.ConnectionStatus{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Status:    adapter_library.BrowsePending,
+		Status:    BrowsePending,
 	}
 
 	mqttResp := opcuaBrowseResponseMQTTMessage{
@@ -1103,7 +1132,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	browseReq := opcuaBrowseRequestMQTTMessage{}
 	err := json.Unmarshal(message.Payload, &browseReq)
 	if err != nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.BrowseFailed
+		mqttResp.ConnectionStatus.Status = BrowseFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to unmarshal request JSON: " + err.Error()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		_, pubErr = returnBrowseMessage(&mqttResp)
@@ -1120,7 +1149,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 	id, err := ua.ParseNodeID(browseReq.RootNode)
 	if err != nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.BrowseFailed
+		mqttResp.ConnectionStatus.Status = BrowseFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid node id: " + err.Error() + ", RootId: " + browseReq.RootNode
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		_, pubErr = returnBrowseMessage(&mqttResp)
@@ -1133,7 +1162,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 	nodeList, err := browse(opcuaClient.Node(id), "", 0)
 	if err != nil {
-		mqttResp.ConnectionStatus.Status = adapter_library.BrowseFailed
+		mqttResp.ConnectionStatus.Status = BrowseFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + browseReq.RootNode
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		_, pubErr = returnBrowseMessage(&mqttResp)
@@ -1149,7 +1178,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
 	}
 
-	mqttResp.ConnectionStatus.Status = adapter_library.BrowseSuccess
+	mqttResp.ConnectionStatus.Status = BrowseSuccess
 	mqttResp.ConnectionStatus.ErrorMessage = ""
 	mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	_, pubErr = returnBrowseMessage(&mqttResp)
