@@ -329,6 +329,11 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 		} else if strings.Contains(message.Topic.Whole, browseTopic) {
 			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
 			go handleBrowseRequest(message)
+		} else if strings.Contains(message.Topic.Whole, connectTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
+			go handleConnectRequest(message)
+		} else {
+			log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
 		}
 	} else {
 		if strings.Contains(message.Topic.Whole, "response") {
@@ -1212,23 +1217,23 @@ func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMess
 }
 
 func returnBrowseMessage(resp *opcuaBrowseResponseMQTTMessage) (mqtt.Token, error) {
-	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", adapterConfig.TopicRoot+"/"+browseTopic+"/response", resp)
+	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", adapterConfig.TopicRoot+"/"+browseTopic+"/response/_platform", resp)
 	json, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
 		return nil, err
 	}
-	return adapter_library.PublishStatus(adapterConfig.TopicRoot+"/"+browseTopic+"/response", json)
+	return adapter_library.PublishStatus(adapterConfig.TopicRoot+"/"+browseTopic+"/response/_platform", json)
 }
 
 func returnConnectionMessage(resp *opcuaConnectionResponseMQTTMessage) (mqtt.Token, error) {
-	log.Printf("[DEBUG] returnConnectionMessage - publishing to topic %s with message %s\n", adapterConfig.TopicRoot+"/"+connectTopic+"/response", resp)
+	log.Printf("[DEBUG] returnConnectionMessage - publishing to topic %s with message %s\n", adapterConfig.TopicRoot+"/"+connectTopic+"/response/_platform", resp)
 	json, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
 		return nil, err
 	}
-	return adapter_library.PublishStatus(adapterConfig.TopicRoot+"/"+connectTopic+"/response", json)
+	return adapter_library.PublishStatus(adapterConfig.TopicRoot+"/"+connectTopic+"/response/_platform", json)
 }
 
 // Publishes data to a topic
