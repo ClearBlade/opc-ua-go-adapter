@@ -314,7 +314,9 @@ func initializeOPCUA() *opcua.Client {
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
 	if opcuaConnected {
-		if strings.Contains(message.Topic.Whole, readTopic) {
+		if strings.Contains(message.Topic.Whole, "response") {
+			log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
+		} else if strings.Contains(message.Topic.Whole, readTopic) {
 			log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
 			go handleReadRequest(message)
 		} else if strings.Contains(message.Topic.Whole, writeTopic) {
@@ -845,7 +847,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	// add subscription id to response
 	resp.SubscriptionID = sub.SubscriptionID
 
-	defer sub.Cancel()
+	defer sub.Cancel(context.Background())
 	log.Printf("[INFO] createSubscription - Created subscription with id %d", sub.SubscriptionID)
 
 	//Now that we have a subscription, we need to add the monitored items
@@ -1078,7 +1080,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	}
 
 	log.Printf("[DEBUG] handleSubscriptionDelete - Deleting subscription: %d\n", parms.SubscriptionID)
-	err := openSubscriptions[parms.SubscriptionID].Cancel()
+	err := openSubscriptions[parms.SubscriptionID].Cancel(context.Background())
 
 	if err != nil && err != ua.StatusOK {
 		//handleSubscriptionDelete - Error occurred while deleting subscription:  OK (0x0)
