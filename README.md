@@ -76,8 +76,10 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
    ** create, publish, and delete are the only supported services in the opcua library being utilized
  * OPC UA Subscribe Response: {__TOPIC ROOT__}/subscribe/response
  * OPC UA Publish: {__TOPIC ROOT__}/publish/response
- * OPC UA Browse Request: {__TOPIC_ROOT__}/_edge/{EDGE_ID}/browse
+ * OPC UA Browse Request: {__TOPIC_ROOT__}/browse/_edge/{EDGE_ID}
  * OPC UA Browse Results: {__TOPIC_ROOT__}/browse/response
+ * OPC UA Connect Request: {__TOPIC_ROOT__}/connect/_edge/{EDGE_ID}
+ * OPC UA Connect Results: {__TOPIC_ROOT__}/connect/response
 ## MQTT Message Structure
 
 ### OPC UA Read Request Payload Format
@@ -261,10 +263,30 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ```json
 {
     "node_ids":["ns=2;s=Dynamic/RandomInt32","ns=2;s=Dynamic/RandomInt64","ns=2;s=Dynamic/RandomFloat","ns=2;s=Dynamic/RandomDouble"],
+    "connection_status": {
+      "timestamp":"2021-11-16T17:18:02Z",
+      "status":"ConnectionSuccess", //BrowseSuccess, BrowseFailed, or BrowsePending
+      "error_message":"" //will not be returned if empty
+  }
+}
+```
+
+
+### OPC UA Connect Request Payload Format
+```json
+{
+    //nothing! (empty message will suffice)
+}
+```
+
+### OPC UA Connect Response Payload Format
+```json
+{
+  "connection_status": {
     "timestamp":"2021-11-16T17:18:02Z",
-    "success":true,
-    "status_code":0,
-    "error_message":""
+    "status":"ConnectionSuccess", //ConnectionSuccess, ConnectionFailed, or ConnectionPending
+    "error_message":"" //will not be returned if empty
+  }
 }
 ```
 
