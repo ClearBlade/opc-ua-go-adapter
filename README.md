@@ -265,7 +265,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
     "node_ids":["ns=2;s=Dynamic/RandomInt32","ns=2;s=Dynamic/RandomInt64","ns=2;s=Dynamic/RandomFloat","ns=2;s=Dynamic/RandomDouble"],
     "connection_status": {
       "timestamp":"2021-11-16T17:18:02Z",
-      "status":"ConnectionSuccess", //BrowseSuccess, BrowseFailed, or BrowsePending
+      "status":"BrowseSuccess", //BrowseSuccess, BrowseFailed, or BrowsePending
       "error_message":"" //will not be returned if empty
   }
 }
