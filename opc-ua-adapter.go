@@ -1160,8 +1160,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
-		log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), browseReq.RootNode)
-		return
+		log.Fatalf("[FATAL] Failed to browse nodes: %s, RootId: %s", err.Error(), browseReq.RootNode)
 	}
 
 	for _, s := range nodeList {
