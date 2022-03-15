@@ -354,6 +354,7 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 func handleReadRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaReadResponseMQTTMessage{
+		EdgeId:          adapter_library.Args.EdgeName,
 		ServerTimestamp: "",
 		Data:            make(map[string]opcuaReadResponseData),
 		Success:         true,

@@ -22,6 +22,7 @@ type opcuaReadRequestMQTTMessage struct {
 }
 
 type opcuaReadResponseMQTTMessage struct {
+	EdgeId          string                           `json:"edge_id"`
 	ServerTimestamp string                           `json:"server_timestamp"`
 	Data            map[string]opcuaReadResponseData `json:"data"`
 	Success         bool                             `json:"success"`
