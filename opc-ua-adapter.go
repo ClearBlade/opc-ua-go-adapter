@@ -1161,6 +1161,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
+		time.Sleep(time.Second) //give mqtt enough time to send message
 		log.Fatalf("[FATAL] Failed to browse nodes: %s, RootId: %s", err.Error(), browseReq.RootNode)
 	}
 
@@ -1363,8 +1364,11 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 			return errors.Errorf("References: %d: %s", refType, err)
 		}
 		log.Printf("[DEBUG] found %d child refs\n", len(refs))
+
 		for _, rn := range refs {
-			children, err := browse(rn, def.Path, level+1)
+			refNodeID := ua.MustParseNodeID(rn.ID.String())
+			refNode := opcuaClient.Node(refNodeID)
+			children, err := browse(refNode, def.Path, level+1)
 			if err != nil {
 				return errors.Errorf("browse children: %s", err)
 			}
