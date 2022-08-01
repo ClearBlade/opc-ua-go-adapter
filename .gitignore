@@ -3,3 +3,4 @@ cert.pem
 key.pem
 .vscode/launch.json
 .DS_Store
+startup.txt
