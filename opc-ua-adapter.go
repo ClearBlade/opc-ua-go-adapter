@@ -1895,7 +1895,6 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 			return errors.Errorf("References: %d: %s", refType, err)
 		}
 		log.Printf("[DEBUG] found %d child refs\n", len(refs))
-
 		for _, rn := range refs {
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
 			refNode := opcuaClient.Node(refNodeID)
