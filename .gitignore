@@ -1,3 +1,5 @@
 opc-ua-go-adapter
 cert.pem
 key.pem
+.vscode/launch.json
+.DS_Store
