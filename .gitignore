@@ -1,3 +1,5 @@
 opc-ua-go-adapter
 cert.pem
 key.pem
+startup.txt
+.vscode/launch.json

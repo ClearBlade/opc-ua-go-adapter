@@ -1,5 +1,9 @@
 package main
 
+import (
+	adapter_library "github.com/clearblade/adapter-go-library"
+)
+
 type opcuaAuthentication struct {
 	Type     string `json:"type"`
 	Username string `json:"username"`
@@ -11,6 +15,7 @@ type opcuaAdapterSettings struct {
 	Authentication opcuaAuthentication `json:"authentication"`
 	SecurityMode   string              `json:"security_mode"`
 	SecurityPolicy string              `json:"security_policy"`
+	UseRelay       *bool               `json:"use_relay,omitempty"`
 }
 
 type opcuaReadRequestMQTTMessage struct {
@@ -18,6 +23,7 @@ type opcuaReadRequestMQTTMessage struct {
 }
 
 type opcuaReadResponseMQTTMessage struct {
+	EdgeId          string                           `json:"edge_id"`
 	ServerTimestamp string                           `json:"server_timestamp"`
 	Data            map[string]opcuaReadResponseData `json:"data"`
 	Success         bool                             `json:"success"`
@@ -169,13 +175,40 @@ type opcuaSubscriptionResponseMQTTMessage struct {
 }
 
 type opcuaBrowseRequestMQTTMessage struct {
-	RootNode string `json:"root_node"`
+	RootNode   string    `json:"root_node"`
+	Attributes *[]string `json:"attributes,omitempty"`
 }
 
 type opcuaBrowseResponseMQTTMessage struct {
-	NodeIDs      []string `json:"node_ids"`
-	Timestamp    string   `json:"timestamp"`
-	Success      bool     `json:"success"`
-	StatusCode   uint32   `json:"status_code"`
-	ErrorMessage string   `json:"error_message"`
+	NodeIDs          []string                         `json:"node_ids"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
+}
+
+type opcuaBrowseResponseWithAttrsMQTTMessage struct {
+	Nodes            []node                           `json:"nodes"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
+}
+
+type node struct {
+	NodeId         string     `json:"node_id"`
+	NodeAttributes []nodeAttr `json:"attributes"`
+}
+
+type nodeAttr struct {
+	Attribute string      `json:"attribute"`
+	Value     interface{} `json:"value"`
+}
+
+type opcuaConnectionResponseMQTTMessage struct {
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
+}
+
+type opcuaBrowseTagNameRequestMQTTMessage struct {
+	RootNode       string `json:"root_node"`
+	TagName        string `json:"tag_name"`
+	NamespaceIndex uint16 `json:"ns_index"`
+}
+type opcuaBrowseTagNameResponseMQTTMessage struct {
+	NodeIDs          string                           `json:"node_ids"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 }

@@ -10,12 +10,14 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	adapter_library "github.com/clearblade/adapter-go-library"
 	mqttTypes "github.com/clearblade/mqtt_parsing"
+	mqtt "github.com/clearblade/paho.mqtt.golang"
 	"github.com/gopcua/opcua"
 	"github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/id"
@@ -32,14 +34,22 @@ import (
 //
 
 const (
-	adapterName    = "opc-ua-adapter"
-	appuri         = "urn:cb-opc-ua-adapter:client"
-	readTopic      = "read"
-	writeTopic     = "write"
-	methodTopic    = "method"
-	subscribeTopic = "subscribe"
-	publishTopic   = "publish"
-	browseTopic    = "browse"
+	adapterName        = "opc-ua-adapter"
+	appuri             = "urn:cb-opc-ua-adapter:client"
+	readTopic          = "read"
+	writeTopic         = "write"
+	methodTopic        = "method"
+	subscribeTopic     = "subscribe"
+	publishTopic       = "publish"
+	browseTopic        = "browse"
+	connectTopic       = "connect"
+	browseTagNameTopic = "discover"
+	ConnectionPending  = "ConnectionPending"
+	ConnectionFailed   = "ConnectionFailed"
+	ConnectionSuccess  = "ConnectionSuccess"
+	BrowsePending      = "BrowsePending"
+	BrowseFailed       = "BrowseFailed"
+	BrowseSuccess      = "BrowseSuccess"
 )
 
 var (
@@ -50,24 +60,47 @@ var (
 	clientHandle           uint32
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
+	opcuaConnected         = false
 )
 
 type NodeDef struct {
-	NodeID      *ua.NodeID
-	NodeClass   ua.NodeClass
-	BrowseName  string
-	Description string
-	AccessLevel ua.AccessLevelType
-	Path        string
-	DataType    string
-	Writable    bool
-	Unit        string
-	Scale       string
-	Min         string
-	Max         string
+	NodeID                  *ua.NodeID
+	NodeClass               ua.NodeClass
+	BrowseName              string
+	Description             string
+	AccessLevel             ua.AccessLevelType
+	Path                    string
+	DataType                string
+	Writable                bool
+	Unit                    string
+	Scale                   string
+	Min                     string
+	Max                     string
+	DisplayName             string
+	WriteMask               string
+	UserWriteMask           string
+	IsAbstract              bool
+	Symmetric               string
+	InverseName             string
+	ContainsNoLoops         bool
+	EventNotifier           []byte
+	Value                   string
+	ValueRank               int64
+	ArrayDimensions         []int32
+	UserAccessLevel         string
+	MinimumSamplingInterval string
+	Historizing             string
+	Executable              bool
+	UserExecutable          bool
+	DataTypeDefinition      string
+	RolePermissions         string
+	UserRolePermissions     string
+	AccessRestrictions      string
+	AccessLevelEx           string
 }
 
 func main() {
+
 	err := adapter_library.ParseArguments(adapterName)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to parse arguments: %s\n", err.Error())
@@ -84,13 +117,22 @@ func main() {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
-	// initialize OPC UA connection
-	opcuaClient = initializeOPCUA()
+	//Handle older systems without relay setting in adapter_config
+	if adapterSettings.UseRelay == nil {
+		useRelayDefault := true
+		adapterSettings.UseRelay = &useRelayDefault
+	}
+
+	//On reconnect, give the broker some time
+	time.Sleep(time.Second * 2)
 
 	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
 	}
+
+	// initialize OPC UA connection
+	opcuaClient = initializeOPCUA()
 
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
@@ -112,15 +154,39 @@ func main() {
 func initializeOPCUA() *opcua.Client {
 	log.Println("[INFO] initializeOPCUA - Creating OPC UA Session")
 
+	opcuaConnected = false
+
 	if adapter_library.Args.LogLevel == "debug" {
 		debug.Enable = true
 	}
 
+	connectionStatus := adapter_library.ConnectionStatus{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    ConnectionPending,
+	}
+
+	mqttResp := opcuaConnectionResponseMQTTMessage{
+		ConnectionStatus: connectionStatus,
+	}
+
 	opcuaOpts := []opcua.Option{}
+
+	token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+	}
 
 	// get a list of endpoints for target server
 	endpoints, err := opcua.GetEndpoints(context.Background(), adapterSettings.EndpointURL)
 	if err != nil {
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to get OPC UA Server endpoints: " + err.Error()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalf("[FATAL] Failed to get OPC UA Server endpoints: %s\n", err.Error())
 	}
 
@@ -134,8 +200,24 @@ func initializeOPCUA() *opcua.Client {
 		authMode = ua.UserTokenTypeUserName
 		opcuaOpts = append(opcuaOpts, opcua.AuthUsername(adapterSettings.Authentication.Username, adapterSettings.Authentication.Password))
 	case "certificate":
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Certificate auth type not implemented yet"
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalln("[FATAL] Certificate auth type not implemented yet")
 	default:
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Invalid auth type: " + adapterSettings.Authentication.Type
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalf("[FATAL] Invalid auth type: %s\n", adapterSettings.Authentication.Type)
 	}
 
@@ -149,6 +231,14 @@ func initializeOPCUA() *opcua.Client {
 	case "signandencrypt":
 		secMode = ua.MessageSecurityModeSignAndEncrypt
 	default:
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security mode: " + adapterSettings.SecurityMode
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalf("[FATAL] Invalid security mode: %s\n", adapterSettings.SecurityMode)
 	}
 
@@ -165,6 +255,14 @@ func initializeOPCUA() *opcua.Client {
 		secPolicy = ua.SecurityPolicyURIPrefix + "Basic256Sha256"
 		certsRequired = true
 	default:
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security policy: " + adapterSettings.SecurityPolicy
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalf("[FATAL] Invalid security policy: %s\n", adapterSettings.SecurityPolicy)
 	}
 
@@ -172,10 +270,26 @@ func initializeOPCUA() *opcua.Client {
 		generateCert(appuri, 2048, "cert.pem", "key.pem")
 		c, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 		if err != nil {
+			mqttResp.ConnectionStatus.Status = ConnectionFailed
+			mqttResp.ConnectionStatus.ErrorMessage = "Failed to load certificates: " + err.Error()
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
 			log.Fatalf("[FATAL] Failed to load certificates: %s\n", err.Error())
 		}
 		pk, ok := c.PrivateKey.(*rsa.PrivateKey)
 		if !ok {
+			mqttResp.ConnectionStatus.Status = ConnectionFailed
+			mqttResp.ConnectionStatus.ErrorMessage = "Invalid Private key: " + err.Error()
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
 			log.Fatalf("[FATAL] Invalid Private key: %s\n", err.Error())
 		}
 		opcuaOpts = append(opcuaOpts, opcua.PrivateKey(pk), opcua.Certificate(c.Certificate[0]))
@@ -189,7 +303,15 @@ func initializeOPCUA() *opcua.Client {
 		}
 	}
 	if serverEndpoint == nil {
-		log.Fatalf("[FATAL] Failed to find a matching server endpoint with sec-policy %s and sec-mode %s\n", secMode, secMode)
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to find a matching server endpoint with sec-policy " + secMode.String() + " and sec-mode " + secMode.String()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
+		log.Fatalf("[FATAL] Failed to find a matching server endpoint with sec-policy %s and sec-mode %s\n", secPolicy, secMode)
 	}
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
@@ -201,39 +323,73 @@ func initializeOPCUA() *opcua.Client {
 	log.Printf("[INFO] Connecting to OPC server address %s\n", adapterSettings.EndpointURL)
 	c := opcua.NewClient(adapterSettings.EndpointURL, opcuaOpts...)
 	if err := c.Connect(ctx); err != nil {
+		mqttResp.ConnectionStatus.Status = ConnectionFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to connect to OPC UA Server: " + err.Error()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
 		log.Fatalf("[FATAL] Failed to connect to OPC UA Server: %s\n", err.Error())
 	}
+	mqttResp.ConnectionStatus.Status = ConnectionSuccess
+	mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	_, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+	}
+	opcuaConnected = true
 	return c
 }
 
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
-	if strings.Contains(message.Topic.Whole, "response") {
-		log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
-	} else if strings.Contains(message.Topic.Whole, readTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
-		go handleReadRequest(message)
-	} else if strings.Contains(message.Topic.Whole, writeTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
-		go handleWriteRequest(message)
-	} else if strings.Contains(message.Topic.Whole, methodTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
-		go handleMethodRequest(message)
-	} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
-		log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
-		go handleSubscriptionRequest(message)
-	} else if strings.Contains(message.Topic.Whole, browseTopic) {
-		log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
-		go handleBrowseRequest(message)
+	if opcuaConnected {
+		if strings.Contains(message.Topic.Whole, "response") {
+			log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
+		} else if strings.Contains(message.Topic.Whole, readTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA read request")
+			go handleReadRequest(message)
+		} else if strings.Contains(message.Topic.Whole, writeTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA write request")
+			go handleWriteRequest(message)
+		} else if strings.Contains(message.Topic.Whole, methodTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA method request")
+			go handleMethodRequest(message)
+		} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
+			go handleSubscriptionRequest(message)
+		} else if strings.Contains(message.Topic.Whole, browseTopic) {
+			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
+			go handleBrowseRequest(message)
+		} else if strings.Contains(message.Topic.Whole, connectTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
+			go handleConnectRequest(message)
+		} else if strings.Contains(message.Topic.Whole, browseTagNameTopic) {
+			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse by tag name request")
+			go handleBrowseByTagNameRequest(message)
+		} else {
+			log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+		}
 	} else {
-		log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+		if strings.Contains(message.Topic.Whole, "response") {
+			log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
+		} else if strings.Contains(message.Topic.Whole, connectTopic) {
+			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
+			go handleConnectRequest(message)
+		} else {
+			log.Printf("[ERROR] cbMessageHandler - Unknown request received: topic = %s, payload = %#v\n", message.Topic.Whole, message.Payload)
+		}
 	}
+
 }
 
 // OPC UA Attribute Service Set - read
 func handleReadRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaReadResponseMQTTMessage{
+		EdgeId:          adapter_library.Args.EdgeName,
 		ServerTimestamp: "",
 		Data:            make(map[string]opcuaReadResponseData),
 		Success:         true,
@@ -727,7 +883,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	// add subscription id to response
 	resp.SubscriptionID = sub.SubscriptionID
 
-	defer sub.Cancel()
+	defer sub.Cancel(context.Background())
 	log.Printf("[INFO] createSubscription - Created subscription with id %d", sub.SubscriptionID)
 
 	//Now that we have a subscription, we need to add the monitored items
@@ -960,7 +1116,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	}
 
 	log.Printf("[DEBUG] handleSubscriptionDelete - Deleting subscription: %d\n", parms.SubscriptionID)
-	err := openSubscriptions[parms.SubscriptionID].Cancel()
+	err := openSubscriptions[parms.SubscriptionID].Cancel(context.Background())
 
 	if err != nil && err != ua.StatusOK {
 		//handleSubscriptionDelete - Error occurred while deleting subscription:  OK (0x0)
@@ -983,21 +1139,89 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	delete(openSubscriptions, parms.SubscriptionID)
 }
 
+func handleBrowseByTagNameRequest(message *mqttTypes.Publish) {
+	connectionStatus := adapter_library.ConnectionStatus{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    BrowsePending,
+	}
+
+	mqttResp := opcuaBrowseTagNameResponseMQTTMessage{
+		NodeIDs:          "",
+		ConnectionStatus: connectionStatus,
+	}
+
+	_, pubErr := returnBrowseNameMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+	}
+
+	browseNameReq := opcuaBrowseTagNameRequestMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &browseNameReq)
+	if err != nil {
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to unmarshal request JSON: " + err.Error()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseNameMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		return
+	}
+	nid, err := ua.ParseNodeID(browseNameReq.RootNode) // Root Node
+	if err != nil {
+		log.Fatalf("invalid node id: %s\n", err.Error())
+	}
+
+	n := opcuaClient.Node(nid)
+	rootNodeBrowseName, err := n.BrowseName()
+	if err != nil {
+		log.Printf("[ERROR] Failed to get browse name for root node id : %s\n", err)
+	}
+	log.Printf("Root Node = %s, BrowseName = %s\n", nid, rootNodeBrowseName.Name)
+	ns, err := n.TranslateBrowsePathInNamespaceToNodeID(browseNameReq.NamespaceIndex, browseNameReq.TagName) // Search by browse name
+	if err != nil {
+		log.Fatalf("invalid  TranslateBrowsePathInNamespaceToNodeID: %s", err.Error())
+	}
+	log.Printf("Tag Name = %s, Node ID = %s \n", browseNameReq.TagName, ns.String())
+	mqttResp.NodeIDs = ns.String()
+	mqttResp.ConnectionStatus.Status = BrowseSuccess
+	mqttResp.ConnectionStatus.ErrorMessage = ""
+	mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	_, pubErr = returnBrowseNameMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish browse name message: %s\n", pubErr.Error())
+	}
+}
+
 func handleBrowseRequest(message *mqttTypes.Publish) {
 
+	connectionStatus := adapter_library.ConnectionStatus{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    BrowsePending,
+	}
+
 	mqttResp := opcuaBrowseResponseMQTTMessage{
-		NodeIDs:      make([]string, 0),
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-		Success:      true,
-		StatusCode:   0,
-		ErrorMessage: "",
+		NodeIDs:          make([]string, 0),
+		ConnectionStatus: connectionStatus,
+	}
+
+	_, pubErr := returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
 
 	browseReq := opcuaBrowseRequestMQTTMessage{}
 	err := json.Unmarshal(message.Payload, &browseReq)
 	if err != nil {
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to unmarshal request JSON: " + err.Error()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
 		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
-		returnBrowseError(err.Error(), &mqttResp)
 		return
 	}
 
@@ -1005,30 +1229,247 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		browseReq.RootNode = "i=85"
 	}
 
-	ctx := context.Background()
-
-	c := opcua.NewClient(adapterSettings.EndpointURL)
-	if err := c.Connect(ctx); err != nil {
-		log.Println(err)
-	}
-	defer c.Close()
-
 	id, err := ua.ParseNodeID(browseReq.RootNode)
 	if err != nil {
-		log.Printf("invalid node id: %s", err)
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Invalid node id: " + err.Error() + ", RootId: " + browseReq.RootNode
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		log.Printf("[ERROR] Invalid node id: %s, RootId: %s", err.Error(), browseReq.RootNode)
+		return
 	}
 
-	nodeList, err := browse(c.Node(id), "", 0)
+	nodeList, err := browse(opcuaClient.Node(id), "", 0)
 	if err != nil {
-		log.Println(err)
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + browseReq.RootNode
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		time.Sleep(time.Second) //give mqtt enough time to send message
+		log.Fatalf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), browseReq.RootNode)
 	}
 
-	for _, s := range nodeList {
-		log.Println("NodeID: " + s.NodeID.String())
-		mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
+	if browseReq.Attributes != nil {
+		mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
+			Nodes: make([]node, 0),
+		}
+
+		for _, s := range nodeList {
+			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
+
+			nodeAttrs := make([]nodeAttr, 0)
+			for _, a := range *browseReq.Attributes {
+				switch a {
+				case "NodeClass":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "NodeClass",
+						Value:     s.NodeClass.String(),
+					})
+				case "BrowseName":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "BrowseName",
+						Value:     s.BrowseName,
+					})
+				case "Description":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Description",
+						Value:     s.Description,
+					})
+				case "AccessLevel":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "AccessLevel",
+						Value:     s.AccessLevel.String(),
+					})
+				case "Path":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Path",
+						Value:     s.Path,
+					})
+				case "DataType":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "DataType",
+						Value:     s.DataType,
+					})
+				case "Writable":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Writable",
+						Value:     strconv.FormatBool(s.Writable),
+					})
+				case "Unit":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Unit",
+						Value:     s.Unit,
+					})
+				case "Scale":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Scale",
+						Value:     s.Scale,
+					})
+				case "Min":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Min",
+						Value:     s.Min,
+					})
+				case "Max":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Max",
+						Value:     s.Max,
+					})
+				case "DisplayName":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "DisplayName",
+						Value:     s.DisplayName,
+					})
+				case "WriteMask":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "WriteMask",
+						Value:     s.WriteMask,
+					})
+				case "UserWriteMask":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "UserWriteMask",
+						Value:     s.UserWriteMask,
+					})
+				case "IsAbstract":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "IsAbstract",
+						Value:     strconv.FormatBool(s.IsAbstract),
+					})
+				case "Symmetric":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Symmetric",
+						Value:     s.Symmetric,
+					})
+				case "InverseName":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "InverseName",
+						Value:     s.InverseName,
+					})
+				case "ContainsNoLoops":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "ContainsNoLoops",
+						Value:     strconv.FormatBool(s.ContainsNoLoops),
+					})
+				case "EventNotifier":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "EventNotifier",
+						Value:     string(s.EventNotifier),
+					})
+				case "Value":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Value",
+						Value:     s.Value,
+					})
+				case "ValueRank":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "ValueRank",
+						Value:     strconv.Itoa(int(s.ValueRank)),
+					})
+				case "ArrayDimensions":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "ArrayDimsneions",
+						Value:     s.ArrayDimensions,
+					})
+				case "UserAccessLevel":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "UserAccessLevel",
+						Value:     s.UserAccessLevel,
+					})
+				case "MinimumSamplingInterval":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "MinimumSamplingInterval",
+						Value:     s.MinimumSamplingInterval,
+					})
+				case "Historizing":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Historizing",
+						Value:     s.Historizing,
+					})
+				case "Executable":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "Executable",
+						Value:     strconv.FormatBool(s.Executable),
+					})
+				case "UserExecutable":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "UserExecutable",
+						Value:     strconv.FormatBool(s.UserExecutable),
+					})
+				case "DataTypeDefinition":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "DataTypeDefinition",
+						Value:     s.DataTypeDefinition,
+					})
+				case "RolePermissions":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "RolePermissions",
+						Value:     s.RolePermissions,
+					})
+				case "UserRolePermissions":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "UserRolePermissions",
+						Value:     s.UserRolePermissions,
+					})
+				case "AccessRestrictions":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "AccessRestrictions",
+						Value:     s.AccessRestrictions,
+					})
+				case "AccessLevelEx":
+					nodeAttrs = append(nodeAttrs, nodeAttr{
+						Attribute: "AccessLevelEx",
+						Value:     s.AccessLevelEx,
+					})
+				default:
+					log.Printf("[ERROR] Unknown Attribute type %s\n", a)
+				}
+			}
+			node := node{
+				NodeId:         s.NodeID.String(),
+				NodeAttributes: nodeAttrs,
+			}
+
+			mqttResp.Nodes = append(mqttResp.Nodes, node)
+		}
+		mqttResp.ConnectionStatus.Status = BrowseSuccess
+		mqttResp.ConnectionStatus.ErrorMessage = ""
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseMessageWithAttrs(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+
+	} else {
+		for _, s := range nodeList {
+			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
+			mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
+		}
+		mqttResp.ConnectionStatus.Status = BrowseSuccess
+		mqttResp.ConnectionStatus.ErrorMessage = ""
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+	}
+}
+
+func handleConnectRequest(message *mqttTypes.Publish) {
+	log.Println("[DEBUG] handleConnectRequest: Killing OPCUA connection and exiting to trigger automatic restart")
+
+	err := opcuaClient.Close()
+	if err != nil {
+		log.Printf("[ERROR] Failed to close OPC UA Session: %s\n", err.Error())
+		os.Exit(1)
 	}
 
-	publishJson(adapterConfig.TopicRoot+"/"+browseTopic+"/response", &mqttResp)
+	os.Exit(0)
 }
 
 func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
@@ -1059,11 +1500,58 @@ func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMess
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 }
 
-func returnBrowseError(errMsg string, resp *opcuaBrowseResponseMQTTMessage) {
-	resp.Success = false
-	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
-	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
+func returnBrowseMessage(resp *opcuaBrowseResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
+}
+func returnBrowseMessageWithAttrs(resp *opcuaBrowseResponseWithAttrsMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
+}
+func returnBrowseNameMessage(resp *opcuaBrowseTagNameResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + browseTagNameTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnBrowseNameMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
+}
+
+func returnConnectionMessage(resp *opcuaConnectionResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + connectTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnConnectionMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
 }
 
 // Publishes data to a topic
@@ -1094,12 +1582,39 @@ func join(a, b string) string {
 }
 
 func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
-	fmt.Printf("node:%s path:%q level:%d\n", n, path, level)
+	log.Printf("[DEBUG] node:%s path:%q level:%d\n", n, path, level)
 	if level > 10 {
 		return nil, nil
 	}
 
-	attrs, err := n.Attributes(ua.AttributeIDNodeClass, ua.AttributeIDBrowseName, ua.AttributeIDDescription, ua.AttributeIDAccessLevel, ua.AttributeIDDataType)
+	attrs, err := n.Attributes(
+		ua.AttributeIDNodeClass,
+		ua.AttributeIDBrowseName,
+		ua.AttributeIDDescription,
+		ua.AttributeIDAccessLevel,
+		ua.AttributeIDDataType,
+		ua.AttributeIDDisplayName,
+		// ua.AttributeIDWriteMask,
+		// ua.AttributeIDUserWriteMask,
+		// ua.AttributeIDIsAbstract,
+		// ua.AttributeIDSymmetric,
+		// ua.AttributeIDInverseName,
+		// ua.AttributeIDContainsNoLoops,
+		// ua.AttributeIDEventNotifier,
+		// ua.AttributeIDValue,
+		// ua.AttributeIDValueRank,
+		// ua.AttributeIDArrayDimensions,
+		// ua.AttributeIDUserAccessLevel,
+		// ua.AttributeIDMinimumSamplingInterval,
+		// ua.AttributeIDHistorizing,
+		// ua.AttributeIDExecutable,
+		// ua.AttributeIDUserExecutable,
+		// ua.AttributeIDDataTypeDefinition,
+		// ua.AttributeIDRolePermissions,
+		// ua.AttributeIDUserRolePermissions,
+		// ua.AttributeIDAccessRestrictions,
+		// ua.AttributeIDAccessLevelEx,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1177,8 +1692,197 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 		return nil, err
 	}
 
+	switch err := attrs[5].Status; err {
+	case ua.StatusOK:
+		def.DisplayName = attrs[5].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
+
+	// switch err := attrs[6].Status; err {
+	// case ua.StatusOK:
+	// 	def.WriteMask = attrs[6].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[7].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserWriteMask = attrs[7].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[8].Status; err {
+	// case ua.StatusOK:
+	// 	def.IsAbstract = attrs[8].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[9].Status; err {
+	// case ua.StatusOK:
+	// 	def.Symmetric = attrs[9].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[10].Status; err {
+	// case ua.StatusOK:
+	// 	def.InverseName = attrs[10].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[11].Status; err {
+	// case ua.StatusOK:
+	// 	def.ContainsNoLoops = attrs[11].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[12].Status; err {
+	// case ua.StatusOK:
+	// 	def.EventNotifier = attrs[12].Value.ByteArray()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[13].Status; err {
+	// case ua.StatusOK:
+	// 	def.Value = attrs[13].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[14].Status; err {
+	// case ua.StatusOK:
+	// 	def.ValueRank = attrs[14].Value.Int()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[15].Status; err {
+	// case ua.StatusOK:
+	// 	def.ArrayDimensions = attrs[15].Value.ArrayDimensions()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[16].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserAccessLevel = attrs[16].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[17].Status; err {
+	// case ua.StatusOK:
+	// 	def.MinimumSamplingInterval = attrs[17].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[18].Status; err {
+	// case ua.StatusOK:
+	// 	def.Historizing = attrs[18].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[19].Status; err {
+	// case ua.StatusOK:
+	// 	def.Executable = attrs[19].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[20].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserExecutable = attrs[20].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[21].Status; err {
+	// case ua.StatusOK:
+	// 	def.DataTypeDefinition = attrs[21].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[22].Status; err {
+	// case ua.StatusOK:
+	// 	def.RolePermissions = attrs[22].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[23].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserRolePermissions = attrs[23].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[24].Status; err {
+	// case ua.StatusOK:
+	// 	def.AccessRestrictions = attrs[24].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
+	// switch err := attrs[25].Status; err {
+	// case ua.StatusOK:
+	// 	def.AccessLevelEx = attrs[25].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
+
 	def.Path = join(path, def.BrowseName)
-	fmt.Printf("%d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
+	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
 
 	var nodes []NodeDef
 	if def.NodeClass == ua.NodeClassVariable {
@@ -1190,9 +1894,12 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 		if err != nil {
 			return errors.Errorf("References: %d: %s", refType, err)
 		}
-		fmt.Printf("found %d child refs\n", len(refs))
+		log.Printf("[DEBUG] found %d child refs\n", len(refs))
+
 		for _, rn := range refs {
-			children, err := browse(rn, def.Path, level+1)
+			refNodeID := ua.MustParseNodeID(rn.ID.String())
+			refNode := opcuaClient.Node(refNodeID)
+			children, err := browse(refNode, def.Path, level+1)
 			if err != nil {
 				return errors.Errorf("browse children: %s", err)
 			}
