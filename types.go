@@ -98,9 +98,9 @@ type opcuaSubscriptionCreateParmsMQTTMessage struct {
 }
 
 //TODO - Republish has not been implemented by "github.com/gopcua/opcua/ua" yet
-type opcuaSubscriptionRepublishParmsMQTTMessage struct {
-	SubscriptionID uint32 `json:"subscription_id"`
-}
+// type opcuaSubscriptionRepublishParmsMQTTMessage struct {
+// 	SubscriptionID uint32 `json:"subscription_id"`
+// }
 
 type opcuaSubscriptionDeleteParmsMQTTMessage struct {
 	SubscriptionID uint32 `json:"subscription_id"`
@@ -190,13 +190,38 @@ type opcuaBrowseResponseWithAttrsMQTTMessage struct {
 }
 
 type node struct {
-	NodeId         string     `json:"node_id"`
-	NodeAttributes []nodeAttr `json:"attributes"`
-}
-
-type nodeAttr struct {
-	Attribute string      `json:"attribute"`
-	Value     interface{} `json:"value"`
+	NodeId                  string `json:"node_id"`
+	NodeClass               string `json:"node_class,omitempty"`
+	BrowseName              string `json:"browse_name,omitempty"`
+	Description             string `json:"description,omitempty"`
+	AccessLevel             string `json:"access_level,omitempty"`
+	DataType                string `json:"data_type,omitempty"`
+	DisplayName             string `json:"display_name,omitempty"`
+	WriteMask               string `json:"write_mask,omitempty"`
+	UserWriteMask           string `json:"user_write_mask,omitempty"`
+	IsAbstract              bool   `json:"is_abstract,omitempty"`
+	Symmetric               string `json:"symmetric,omitempty"`
+	InverseName             string `json:"inverse_name,omitempty"`
+	ContainsNoLoops         bool   `json:"contains_no_loops,omitempty"`
+	EventNotifier           string `json:"event_notifier,omitempty"`
+	Value                   string `json:"value,omitempty"`
+	ValueRank               int64  `json:"value_rank,omitempty"`
+	ArrayDimensions         string `json:"array_dimensions,omitempty"`
+	UserAccessLevel         string `json:"user_acces_level,omitempty"`
+	MinimumSamplingInterval string `json:"minimum_sampling_interval,omitempty"`
+	Historizing             string `json:"historizing,omitempty"`
+	Executable              bool   `json:"executable,omitempty"`
+	UserExecutable          bool   `json:"user_executable,omitempty"`
+	DataTypeDefinition      string `json:"data_type_definition,omitempty"`
+	RolePermissions         string `json:"role_permissions,omitempty"`
+	UserRolePermissions     string `json:"user_role_permissions,omitempty"`
+	AccessRestrictions      string `json:"access_restriction,omitempty"`
+	AccessLevelEx           string `json:"access_level_ex,omitempty"`
+	Writable                bool   `json:"writable,omitempty"`
+	Unit                    string `json:"Unit,omitempty"`
+	Scale                   string `json:"Scale,omitempty"`
+	Min                     string `json:"min,omitempty"`
+	Max                     string `json:"max,omitempty"`
 }
 
 type opcuaConnectionResponseMQTTMessage struct {

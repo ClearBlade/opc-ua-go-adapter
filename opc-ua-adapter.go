@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -86,7 +85,7 @@ type NodeDef struct {
 	EventNotifier           []byte
 	Value                   string
 	ValueRank               int64
-	ArrayDimensions         []int32
+	ArrayDimensions         string
 	UserAccessLevel         string
 	MinimumSamplingInterval string
 	Historizing             string
@@ -171,7 +170,7 @@ func initializeOPCUA() *opcua.Client {
 
 	opcuaOpts := []opcua.Option{}
 
-	token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+	_, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 	if pubErr != nil {
 		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
@@ -182,7 +181,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to get OPC UA Server endpoints: " + err.Error()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -203,7 +202,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Certificate auth type not implemented yet"
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -213,7 +212,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid auth type: " + adapterSettings.Authentication.Type
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -234,7 +233,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security mode: " + adapterSettings.SecurityMode
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -258,7 +257,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Invalid security policy: " + adapterSettings.SecurityPolicy
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -273,7 +272,7 @@ func initializeOPCUA() *opcua.Client {
 			mqttResp.ConnectionStatus.Status = ConnectionFailed
 			mqttResp.ConnectionStatus.ErrorMessage = "Failed to load certificates: " + err.Error()
 			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-			token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+			token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 			if pubErr != nil {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
@@ -285,7 +284,7 @@ func initializeOPCUA() *opcua.Client {
 			mqttResp.ConnectionStatus.Status = ConnectionFailed
 			mqttResp.ConnectionStatus.ErrorMessage = "Invalid Private key: " + err.Error()
 			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-			token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+			token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 			if pubErr != nil {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
@@ -306,7 +305,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to find a matching server endpoint with sec-policy " + secMode.String() + " and sec-mode " + secMode.String()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -326,7 +325,7 @@ func initializeOPCUA() *opcua.Client {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to connect to OPC UA Server: " + err.Error()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		token, pubErr = returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
+		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
@@ -499,6 +498,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 				}
 				convertedArray = append(convertedArray, v.(bool))
 			}
+			writeReq.Value = convertedArray
 		case ua.TypeIDDouble:
 			convertedArray := make([]float64, 0)
 			for _, i := range val {
@@ -546,6 +546,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 				}
 				convertedArray = append(convertedArray, v.(int64))
 			}
+			writeReq.Value = convertedArray
 		case ua.TypeIDString:
 			convertedArray := make([]string, 0)
 			for _, i := range val {
@@ -575,7 +576,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 			return
 		}
 	case interface{}:
-		val, err = getConvertedValue(nodeType, val)
+		_, err = getConvertedValue(nodeType, val)
 		if err != nil {
 			log.Println("[ERROR] " + err.Error())
 			returnWriteError(err.Error(), &mqttResp)
@@ -596,7 +597,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
-			&ua.WriteValue{
+			{
 				NodeID:      id,
 				AttributeID: ua.AttributeIDValue,
 				Value: &ua.DataValue{
@@ -1263,176 +1264,77 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		for _, s := range nodeList {
 			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
 
-			nodeAttrs := make([]nodeAttr, 0)
+			node := node{}
+			node.NodeId = s.NodeID.String()
 			for _, a := range *browseReq.Attributes {
 				switch a {
 				case "NodeClass":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "NodeClass",
-						Value:     s.NodeClass.String(),
-					})
+					node.NodeClass = s.NodeClass.String()
 				case "BrowseName":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "BrowseName",
-						Value:     s.BrowseName,
-					})
+					node.BrowseName = s.BrowseName
 				case "Description":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Description",
-						Value:     s.Description,
-					})
+					node.Description = s.Description
 				case "AccessLevel":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "AccessLevel",
-						Value:     s.AccessLevel.String(),
-					})
-				case "Path":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Path",
-						Value:     s.Path,
-					})
+					node.AccessLevel = s.AccessLevel.String()
+				// case "Path":
+				// 	node.Path = s.Path
 				case "DataType":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "DataType",
-						Value:     s.DataType,
-					})
-				case "Writable":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Writable",
-						Value:     strconv.FormatBool(s.Writable),
-					})
-				case "Unit":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Unit",
-						Value:     s.Unit,
-					})
-				case "Scale":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Scale",
-						Value:     s.Scale,
-					})
-				case "Min":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Min",
-						Value:     s.Min,
-					})
-				case "Max":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Max",
-						Value:     s.Max,
-					})
+					node.DataType = s.DataType
+				// case "Writable":
+				// 	node.Writable = s.Writable
+				// case "Unit":
+				// 	node.Unit = s.Unit
+				// case "Scale":
+				// 	node.Scale = s.Scale
+				// case "Min":
+				// 	node.Min = s.Min
+				// case "Max":
+				// 	node.Max = s.Max
 				case "DisplayName":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "DisplayName",
-						Value:     s.DisplayName,
-					})
+					node.DisplayName = s.DisplayName
 				case "WriteMask":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "WriteMask",
-						Value:     s.WriteMask,
-					})
+					node.WriteMask = s.WriteMask
 				case "UserWriteMask":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "UserWriteMask",
-						Value:     s.UserWriteMask,
-					})
+					node.UserWriteMask = s.UserWriteMask
 				case "IsAbstract":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "IsAbstract",
-						Value:     strconv.FormatBool(s.IsAbstract),
-					})
+					node.IsAbstract = s.IsAbstract
 				case "Symmetric":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Symmetric",
-						Value:     s.Symmetric,
-					})
+					node.Symmetric = s.Symmetric
 				case "InverseName":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "InverseName",
-						Value:     s.InverseName,
-					})
+					node.InverseName = s.InverseName
 				case "ContainsNoLoops":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "ContainsNoLoops",
-						Value:     strconv.FormatBool(s.ContainsNoLoops),
-					})
+					node.ContainsNoLoops = s.ContainsNoLoops
 				case "EventNotifier":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "EventNotifier",
-						Value:     string(s.EventNotifier),
-					})
+					node.EventNotifier = string(s.EventNotifier)
 				case "Value":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Value",
-						Value:     s.Value,
-					})
+					node.Value = s.Value
 				case "ValueRank":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "ValueRank",
-						Value:     strconv.Itoa(int(s.ValueRank)),
-					})
+					node.ValueRank = s.ValueRank
 				case "ArrayDimensions":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "ArrayDimsneions",
-						Value:     s.ArrayDimensions,
-					})
+					node.ArrayDimensions = string(s.ArrayDimensions)
 				case "UserAccessLevel":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "UserAccessLevel",
-						Value:     s.UserAccessLevel,
-					})
+					node.UserAccessLevel = s.UserAccessLevel
 				case "MinimumSamplingInterval":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "MinimumSamplingInterval",
-						Value:     s.MinimumSamplingInterval,
-					})
+					node.MinimumSamplingInterval = s.MinimumSamplingInterval
 				case "Historizing":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Historizing",
-						Value:     s.Historizing,
-					})
+					node.Historizing = s.Historizing
 				case "Executable":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "Executable",
-						Value:     strconv.FormatBool(s.Executable),
-					})
+					node.Executable = s.Executable
 				case "UserExecutable":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "UserExecutable",
-						Value:     strconv.FormatBool(s.UserExecutable),
-					})
+					node.UserExecutable = s.UserExecutable
 				case "DataTypeDefinition":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "DataTypeDefinition",
-						Value:     s.DataTypeDefinition,
-					})
+					node.DataTypeDefinition = s.DataTypeDefinition
 				case "RolePermissions":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "RolePermissions",
-						Value:     s.RolePermissions,
-					})
+					node.RolePermissions = s.RolePermissions
 				case "UserRolePermissions":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "UserRolePermissions",
-						Value:     s.UserRolePermissions,
-					})
+					node.UserRolePermissions = s.UserRolePermissions
 				case "AccessRestrictions":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "AccessRestrictions",
-						Value:     s.AccessRestrictions,
-					})
+					node.AccessRestrictions = s.AccessRestrictions
 				case "AccessLevelEx":
-					nodeAttrs = append(nodeAttrs, nodeAttr{
-						Attribute: "AccessLevelEx",
-						Value:     s.AccessLevelEx,
-					})
+					node.AccessLevelEx = s.AccessLevelEx
 				default:
 					log.Printf("[ERROR] Unknown Attribute type %s\n", a)
 				}
-			}
-			node := node{
-				NodeId:         s.NodeID.String(),
-				NodeAttributes: nodeAttrs,
 			}
 
 			mqttResp.Nodes = append(mqttResp.Nodes, node)
@@ -1594,26 +1496,26 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 		ua.AttributeIDAccessLevel,
 		ua.AttributeIDDataType,
 		ua.AttributeIDDisplayName,
-		// ua.AttributeIDWriteMask,
-		// ua.AttributeIDUserWriteMask,
-		// ua.AttributeIDIsAbstract,
-		// ua.AttributeIDSymmetric,
-		// ua.AttributeIDInverseName,
-		// ua.AttributeIDContainsNoLoops,
-		// ua.AttributeIDEventNotifier,
-		// ua.AttributeIDValue,
-		// ua.AttributeIDValueRank,
-		// ua.AttributeIDArrayDimensions,
-		// ua.AttributeIDUserAccessLevel,
-		// ua.AttributeIDMinimumSamplingInterval,
-		// ua.AttributeIDHistorizing,
-		// ua.AttributeIDExecutable,
-		// ua.AttributeIDUserExecutable,
-		// ua.AttributeIDDataTypeDefinition,
-		// ua.AttributeIDRolePermissions,
-		// ua.AttributeIDUserRolePermissions,
-		// ua.AttributeIDAccessRestrictions,
-		// ua.AttributeIDAccessLevelEx,
+		ua.AttributeIDWriteMask,
+		ua.AttributeIDUserWriteMask,
+		ua.AttributeIDIsAbstract,
+		ua.AttributeIDSymmetric,
+		ua.AttributeIDInverseName,
+		ua.AttributeIDContainsNoLoops,
+		ua.AttributeIDEventNotifier,
+		ua.AttributeIDValue,
+		ua.AttributeIDValueRank,
+		ua.AttributeIDArrayDimensions,
+		ua.AttributeIDUserAccessLevel,
+		ua.AttributeIDMinimumSamplingInterval,
+		ua.AttributeIDHistorizing,
+		ua.AttributeIDExecutable,
+		ua.AttributeIDUserExecutable,
+		ua.AttributeIDDataTypeDefinition,
+		ua.AttributeIDRolePermissions,
+		ua.AttributeIDUserRolePermissions,
+		ua.AttributeIDAccessRestrictions,
+		ua.AttributeIDAccessLevelEx,
 	)
 	if err != nil {
 		return nil, err
@@ -1701,185 +1603,185 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 		return nil, err
 	}
 
-	// switch err := attrs[6].Status; err {
-	// case ua.StatusOK:
-	// 	def.WriteMask = attrs[6].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[6].Status; err {
+	case ua.StatusOK:
+		def.WriteMask = attrs[6].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[7].Status; err {
-	// case ua.StatusOK:
-	// 	def.UserWriteMask = attrs[7].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[7].Status; err {
+	case ua.StatusOK:
+		def.UserWriteMask = attrs[7].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[8].Status; err {
-	// case ua.StatusOK:
-	// 	def.IsAbstract = attrs[8].Value.Bool()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[8].Status; err {
+	case ua.StatusOK:
+		def.IsAbstract = attrs[8].Value.Bool()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[9].Status; err {
-	// case ua.StatusOK:
-	// 	def.Symmetric = attrs[9].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[9].Status; err {
+	case ua.StatusOK:
+		def.Symmetric = attrs[9].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[10].Status; err {
-	// case ua.StatusOK:
-	// 	def.InverseName = attrs[10].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[10].Status; err {
+	case ua.StatusOK:
+		def.InverseName = attrs[10].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[11].Status; err {
-	// case ua.StatusOK:
-	// 	def.ContainsNoLoops = attrs[11].Value.Bool()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[11].Status; err {
+	case ua.StatusOK:
+		def.ContainsNoLoops = attrs[11].Value.Bool()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[12].Status; err {
-	// case ua.StatusOK:
-	// 	def.EventNotifier = attrs[12].Value.ByteArray()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[12].Status; err {
+	case ua.StatusOK:
+		def.EventNotifier = attrs[12].Value.ByteArray()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[13].Status; err {
-	// case ua.StatusOK:
-	// 	def.Value = attrs[13].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[13].Status; err {
+	case ua.StatusOK:
+		def.Value = attrs[13].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[14].Status; err {
-	// case ua.StatusOK:
-	// 	def.ValueRank = attrs[14].Value.Int()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[14].Status; err {
+	case ua.StatusOK:
+		def.ValueRank = attrs[14].Value.Int()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
 	// switch err := attrs[15].Status; err {
 	// case ua.StatusOK:
-	// 	def.ArrayDimensions = attrs[15].Value.ArrayDimensions()
+	// 	def.ArrayDimensions = string(attrs[15].Value)
 	// case ua.StatusBadAttributeIDInvalid:
 	// 	// ignore
 	// default:
 	// 	return nil, err
 	// }
 
-	// switch err := attrs[16].Status; err {
-	// case ua.StatusOK:
-	// 	def.UserAccessLevel = attrs[16].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[16].Status; err {
+	case ua.StatusOK:
+		def.UserAccessLevel = attrs[16].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[17].Status; err {
-	// case ua.StatusOK:
-	// 	def.MinimumSamplingInterval = attrs[17].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[17].Status; err {
+	case ua.StatusOK:
+		def.MinimumSamplingInterval = attrs[17].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[18].Status; err {
-	// case ua.StatusOK:
-	// 	def.Historizing = attrs[18].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[18].Status; err {
+	case ua.StatusOK:
+		def.Historizing = attrs[18].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[19].Status; err {
-	// case ua.StatusOK:
-	// 	def.Executable = attrs[19].Value.Bool()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[19].Status; err {
+	case ua.StatusOK:
+		def.Executable = attrs[19].Value.Bool()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[20].Status; err {
-	// case ua.StatusOK:
-	// 	def.UserExecutable = attrs[20].Value.Bool()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[20].Status; err {
+	case ua.StatusOK:
+		def.UserExecutable = attrs[20].Value.Bool()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[21].Status; err {
-	// case ua.StatusOK:
-	// 	def.DataTypeDefinition = attrs[21].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[21].Status; err {
+	case ua.StatusOK:
+		def.DataTypeDefinition = attrs[21].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[22].Status; err {
-	// case ua.StatusOK:
-	// 	def.RolePermissions = attrs[22].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[22].Status; err {
+	case ua.StatusOK:
+		def.RolePermissions = attrs[22].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[23].Status; err {
-	// case ua.StatusOK:
-	// 	def.UserRolePermissions = attrs[23].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[23].Status; err {
+	case ua.StatusOK:
+		def.UserRolePermissions = attrs[23].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[24].Status; err {
-	// case ua.StatusOK:
-	// 	def.AccessRestrictions = attrs[24].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[24].Status; err {
+	case ua.StatusOK:
+		def.AccessRestrictions = attrs[24].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
-	// switch err := attrs[25].Status; err {
-	// case ua.StatusOK:
-	// 	def.AccessLevelEx = attrs[25].Value.String()
-	// case ua.StatusBadAttributeIDInvalid:
-	// 	// ignore
-	// default:
-	// 	return nil, err
-	// }
+	switch err := attrs[25].Status; err {
+	case ua.StatusOK:
+		def.AccessLevelEx = attrs[25].Value.String()
+	case ua.StatusBadAttributeIDInvalid:
+		// ignore
+	default:
+		return nil, err
+	}
 
 	def.Path = join(path, def.BrowseName)
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
