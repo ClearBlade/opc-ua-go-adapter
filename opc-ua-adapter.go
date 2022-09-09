@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/gopcua/opcua/debug"
 	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
-	"github.com/pkg/errors"
 )
 
 // TODO
@@ -60,10 +60,13 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
+	// wg                     sync.WaitGroup
+	// wgi                    int
 )
 
 type NodeDef struct {
 	NodeID                  *ua.NodeID
+	ParentNodeID            *ua.NodeID
 	NodeClass               ua.NodeClass
 	BrowseName              string
 	Description             string
@@ -1227,7 +1230,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	}
 
 	if browseReq.RootNode == "" {
-		browseReq.RootNode = "i=85"
+		browseReq.RootNode = "i=84"
 	}
 
 	id, err := ua.ParseNodeID(browseReq.RootNode)
@@ -1243,18 +1246,13 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	nodeList, err := browse(opcuaClient.Node(id), "", 0)
-	if err != nil {
-		mqttResp.ConnectionStatus.Status = BrowseFailed
-		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + browseReq.RootNode
-		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
-		if pubErr != nil {
-			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
-		}
-		time.Sleep(time.Second) //give mqtt enough time to send message
-		log.Fatalf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), browseReq.RootNode)
-	}
+	var nodeList []NodeDef
+	var wg sync.WaitGroup
+
+	go browse(&wg, &nodeList, opcuaClient.Node(id), nil, "", 0, &mqttResp)
+
+	time.Sleep(time.Second) //I don't really know how to use WaitGroups
+	wg.Wait()
 
 	if browseReq.Attributes != nil {
 		mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
@@ -1266,6 +1264,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 			node := node{}
 			node.NodeId = s.NodeID.String()
+			node.ParentNodeID = s.ParentNodeID.String()
 			for _, a := range *browseReq.Attributes {
 				switch a {
 				case "NodeClass":
@@ -1415,12 +1414,13 @@ func returnBrowseMessage(resp *opcuaBrowseResponseMQTTMessage, useRelay bool) (m
 	}
 	return adapter_library.PublishStatus(topic, json)
 }
+
 func returnBrowseMessageWithAttrs(resp *opcuaBrowseResponseWithAttrsMQTTMessage, useRelay bool) (mqtt.Token, error) {
 	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
 	if useRelay {
 		topic = topic + "/_platform"
 	}
-	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", topic, resp)
+	log.Printf("[DEBUG] returnBrowseMessageWithAttrs - publishing to topic %s with message %s\n", topic, resp)
 	json, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
@@ -1428,6 +1428,7 @@ func returnBrowseMessageWithAttrs(resp *opcuaBrowseResponseWithAttrsMQTTMessage,
 	}
 	return adapter_library.PublishStatus(topic, json)
 }
+
 func returnBrowseNameMessage(resp *opcuaBrowseTagNameResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
 	topic := adapterConfig.TopicRoot + "/" + browseTagNameTopic + "/response"
 	if useRelay {
@@ -1483,10 +1484,12 @@ func join(a, b string) string {
 	return a + "." + b
 }
 
-func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
+func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *opcua.Node, path string, level int, mqttResp *opcuaBrowseResponseMQTTMessage) {
+
 	log.Printf("[DEBUG] node:%s path:%q level:%d\n", n, path, level)
+
 	if level > 10 {
-		return nil, nil
+		return
 	}
 
 	attrs, err := n.Attributes(
@@ -1518,25 +1521,40 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 		ua.AttributeIDAccessLevelEx,
 	)
 	if err != nil {
-		return nil, err
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + n.ID.String()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr := returnBrowseMessage(mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		time.Sleep(time.Second) //give mqtt enough time to send message
+		log.Fatalf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
+		return
 	}
 
 	var def = NodeDef{
 		NodeID: n.ID,
 	}
 
+	if parentNode != nil {
+		def.ParentNodeID = parentNode.ID
+	}
+
 	switch err := attrs[0].Status; err {
 	case ua.StatusOK:
 		def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[1].Status; err {
 	case ua.StatusOK:
 		def.BrowseName = attrs[1].Value.String()
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[2].Status; err {
@@ -1545,7 +1563,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[3].Status; err {
@@ -1555,7 +1574,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[4].Status; err {
@@ -1591,7 +1611,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[5].Status; err {
@@ -1600,7 +1621,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[6].Status; err {
@@ -1609,7 +1631,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[7].Status; err {
@@ -1618,7 +1641,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[8].Status; err {
@@ -1627,7 +1651,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[9].Status; err {
@@ -1636,7 +1661,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[10].Status; err {
@@ -1645,7 +1671,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[11].Status; err {
@@ -1654,7 +1681,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[12].Status; err {
@@ -1663,17 +1691,18 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
-	switch err := attrs[13].Status; err {
-	case ua.StatusOK:
-		def.Value = attrs[13].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		return nil, err
-	}
+	// switch err := attrs[13].Status; err {
+	// case ua.StatusOK:
+	// 	def.Value = attrs[13].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	return nil, err
+	// }
 
 	switch err := attrs[14].Status; err {
 	case ua.StatusOK:
@@ -1681,7 +1710,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	// switch err := attrs[15].Status; err {
@@ -1699,7 +1729,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[17].Status; err {
@@ -1708,7 +1739,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[18].Status; err {
@@ -1717,7 +1749,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[19].Status; err {
@@ -1726,7 +1759,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[20].Status; err {
@@ -1735,7 +1769,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[21].Status; err {
@@ -1744,7 +1779,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[22].Status; err {
@@ -1753,7 +1789,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[23].Status; err {
@@ -1762,7 +1799,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[24].Status; err {
@@ -1771,7 +1809,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	switch err := attrs[25].Status; err {
@@ -1780,43 +1819,36 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
-		return nil, err
+		log.Printf("[ERROR] %s", err)
+		return
 	}
 
 	def.Path = join(path, def.BrowseName)
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
 
-	var nodes []NodeDef
 	if def.NodeClass == ua.NodeClassVariable {
-		nodes = append(nodes, def)
+		*nodeList = append(*nodeList, def)
 	}
 
-	browseChildren := func(refType uint32) error {
+	browseChildren := func(refType uint32) {
+		defer wg.Done()
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
+
 		if err != nil {
-			return errors.Errorf("References: %d: %s", refType, err)
+			log.Printf("[ERROR] References: %d: %s", refType, err)
 		}
-		log.Printf("[DEBUG] found %d child refs\n", len(refs))
 		for _, rn := range refs {
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
 			refNode := opcuaClient.Node(refNodeID)
-			children, err := browse(refNode, def.Path, level+1)
-			if err != nil {
-				return errors.Errorf("browse children: %s", err)
-			}
-			nodes = append(nodes, children...)
+			go browse(wg, nodeList, refNode, n, def.Path, level+1, mqttResp)
 		}
-		return nil
+		time.Sleep(time.Second * 2) //I don't really know how to use WaitGroups
 	}
 
-	if err := browseChildren(id.HasComponent); err != nil {
-		return nil, err
-	}
-	if err := browseChildren(id.Organizes); err != nil {
-		return nil, err
-	}
-	if err := browseChildren(id.HasProperty); err != nil {
-		return nil, err
-	}
-	return nodes, nil
+	wg.Add(1)
+	go browseChildren(id.HasComponent)
+	wg.Add(1)
+	go browseChildren(id.Organizes)
+	wg.Add(1)
+	go browseChildren(id.HasProperty)
 }
