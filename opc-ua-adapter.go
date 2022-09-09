@@ -1251,7 +1251,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 	go browse(&wg, &nodeList, opcuaClient.Node(id), nil, "", 0, &mqttResp)
 
-	time.Sleep(time.Second) //I don't really know how to use WaitGroups
+	time.Sleep(time.Second)
 	wg.Wait()
 
 	if browseReq.Attributes != nil {
@@ -1842,7 +1842,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 			refNode := opcuaClient.Node(refNodeID)
 			go browse(wg, nodeList, refNode, n, def.Path, level+1, mqttResp)
 		}
-		time.Sleep(time.Second * 2) //I don't really know how to use WaitGroups
+		time.Sleep(time.Second * 2)
 	}
 
 	wg.Add(1)
