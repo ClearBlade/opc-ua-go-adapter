@@ -1264,7 +1264,9 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 			node := node{}
 			node.NodeId = s.NodeID.String()
-			node.ParentNodeID = s.ParentNodeID.String()
+			if s.ParentNodeID != nil {
+				node.ParentNodeID = s.ParentNodeID.String()
+			}
 			for _, a := range *browseReq.Attributes {
 				switch a {
 				case "NodeClass":
