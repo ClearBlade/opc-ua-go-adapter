@@ -60,13 +60,12 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
-	// wg                     sync.WaitGroup
-	// wgi                    int
 )
 
 type NodeDef struct {
 	NodeID                  *ua.NodeID
 	ParentNodeID            *ua.NodeID
+	Level                   int
 	NodeClass               ua.NodeClass
 	BrowseName              string
 	Description             string
@@ -1269,6 +1268,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 				node.ParentNodeID = s.ParentNodeID.String()
 			}
 			node.BrowseName = s.BrowseName
+			node.Level = s.Level
 			for _, a := range *browseReq.Attributes {
 				switch a {
 				case "NodeClass":
@@ -1540,6 +1540,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 
 	var def = NodeDef{
 		NodeID: n.ID,
+		Level:  level,
 	}
 
 	if parentNode != nil {

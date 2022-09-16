@@ -199,6 +199,7 @@ type opcuaBrowseResponseWithAttrsMQTTMessage struct {
 type node struct {
 	NodeId                  string `json:"node_id"`
 	ParentNodeID            string `json:"parent_node_id"`
+	Level                   int    `json:"level"`
 	NodeClass               string `json:"node_class,omitempty"`
 	BrowseName              string `json:"browse_name,omitempty"`
 	Description             string `json:"description,omitempty"`
