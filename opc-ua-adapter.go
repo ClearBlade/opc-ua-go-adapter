@@ -1256,7 +1256,8 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 
 	if browseReq.Attributes != nil {
 		mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
-			Nodes: make([]node, 0),
+			Nodes:    make([]node, 0),
+			NodeList: browseReq.NodeList,
 		}
 
 		for _, s := range nodeList {
@@ -1265,12 +1266,14 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 			node := node{}
 			node.NodeId = s.NodeID.String()
 			node.ParentNodeID = s.ParentNodeID.String()
+			node.BrowseName = s.BrowseName
 			for _, a := range *browseReq.Attributes {
 				switch a {
 				case "NodeClass":
 					node.NodeClass = s.NodeClass.String()
 				case "BrowseName":
-					node.BrowseName = s.BrowseName
+					//already set
+					// node.BrowseName = s.BrowseName
 				case "Description":
 					node.Description = s.Description
 				case "AccessLevel":

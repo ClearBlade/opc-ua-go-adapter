@@ -174,8 +174,14 @@ type opcuaSubscriptionResponseMQTTMessage struct {
 	Results        []interface{}             `json:"results"`
 }
 
+type Node struct {
+	NodeName string `json:"node_name"`
+	Path     string `json:"path"`
+}
+
 type opcuaBrowseRequestMQTTMessage struct {
 	RootNode   string    `json:"root_node"`
+	NodeList   []Node    `json:"node_list,omitempty"`
 	Attributes *[]string `json:"attributes,omitempty"`
 }
 
@@ -187,6 +193,7 @@ type opcuaBrowseResponseMQTTMessage struct {
 type opcuaBrowseResponseWithAttrsMQTTMessage struct {
 	Nodes            []node                           `json:"nodes"`
 	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
+	NodeList         []Node                           `json:"node_list,omitempty"`
 }
 
 type node struct {
