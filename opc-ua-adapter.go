@@ -1259,6 +1259,13 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 			NodeList: browseReq.NodeList,
 		}
 
+		mqttResp.Nodes = append(mqttResp.Nodes, node{
+			NodeId:       browseReq.RootNode,
+			Level:        0,
+			BrowseName:   browseReq.RootNode,
+			ParentNodeID: "",
+		})
+
 		for _, s := range nodeList {
 			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
 

@@ -3,7 +3,6 @@
  * Description: A library that contains a function which, when called, returns an object with a public API.
  */
 function OPCUAHelper(browseResponse) {
-  browseResponse = JSON.parse(browseResponse);
   browseResponse.nodes.sort(compare);
   var _nodeTree = null;
   _populateNodeTree(browseResponse);
@@ -16,30 +15,29 @@ function OPCUAHelper(browseResponse) {
     var pathArray = path.split(".");
     var localNodeTree = _nodeTree;
     for (var i = 0; i < pathArray.length; i++) {
-      localNodeTree = getNodes(localNodeTree, function (o) {
-        return o.path.indexOf(pathArray[i]) !== -1;
+      var childArray = [];
+
+      localNodeTree = localNodeTree.filter(function (node) {
+        return node.node_id === pathArray[i];
       });
+
+      for (var j = 0; j < localNodeTree.length; j++) {
+        childArray.push.apply(childArray, localNodeTree[j].children);
+      }
+      if (childArray.length > 0) {
+        localNodeTree = childArray;
+      }
     }
 
-    return localNodeTree.find(function (node) {
-      return node.display_name === displayName;
+    var nodeToReturn = localNodeTree.find(function (node) {
+      return node.browse_name === displayName;
     });
-  }
 
-  function getNodes(array, cb) {
-    return array.reduce(function iter(r, a) {
-      var children;
-      if (cb(a)) {
-        return r.concat(a);
-      }
-      if (Array.isArray(a.children)) {
-        children = a.children.reduce(iter, []);
-      }
-      if (children.length) {
-        return r.concat({ children: children });
-      }
-      return r;
-    }, []);
+    if (!!nodeToReturn) {
+      return nodeToReturn.node_id;
+    } else {
+      return null;
+    }
   }
 
   function _populateNodeTree(browseResponse) {
@@ -49,13 +47,13 @@ function OPCUAHelper(browseResponse) {
       i;
 
     for (i = 0; i < browseResponse.nodes.length; i += 1) {
-      map[browseResponse.nodes[i].id] = i; // initialize the map
+      map[browseResponse.nodes[i].node_id] = i; // initialize the map
       browseResponse.nodes[i].children = []; // initialize the children
     }
 
     for (i = 0; i < browseResponse.nodes.length; i += 1) {
       node = browseResponse.nodes[i];
-      if (node.parent_node_id !== null) {
+      if (node.parent_node_id !== null && node.parent_node_id !== "") {
         browseResponse.nodes[map[node.parent_node_id]].children.push(node);
       } else {
         roots.push(node);
