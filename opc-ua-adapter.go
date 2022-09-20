@@ -1505,32 +1505,32 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	}
 
 	attrs, err := n.Attributes(
-		ua.AttributeIDNodeClass,
+		// ua.AttributeIDNodeClass,
 		ua.AttributeIDBrowseName,
-		ua.AttributeIDDescription,
-		ua.AttributeIDAccessLevel,
+		// ua.AttributeIDDescription,
+		// ua.AttributeIDAccessLevel,
 		ua.AttributeIDDataType,
 		ua.AttributeIDDisplayName,
-		ua.AttributeIDWriteMask,
-		ua.AttributeIDUserWriteMask,
-		ua.AttributeIDIsAbstract,
-		ua.AttributeIDSymmetric,
-		ua.AttributeIDInverseName,
-		ua.AttributeIDContainsNoLoops,
-		ua.AttributeIDEventNotifier,
-		ua.AttributeIDValue,
-		ua.AttributeIDValueRank,
-		ua.AttributeIDArrayDimensions,
-		ua.AttributeIDUserAccessLevel,
-		ua.AttributeIDMinimumSamplingInterval,
-		ua.AttributeIDHistorizing,
-		ua.AttributeIDExecutable,
-		ua.AttributeIDUserExecutable,
-		ua.AttributeIDDataTypeDefinition,
-		ua.AttributeIDRolePermissions,
-		ua.AttributeIDUserRolePermissions,
-		ua.AttributeIDAccessRestrictions,
-		ua.AttributeIDAccessLevelEx,
+		// ua.AttributeIDWriteMask,
+		// ua.AttributeIDUserWriteMask,
+		// ua.AttributeIDIsAbstract,
+		// ua.AttributeIDSymmetric,
+		// ua.AttributeIDInverseName,
+		// ua.AttributeIDContainsNoLoops,
+		// ua.AttributeIDEventNotifier,
+		// ua.AttributeIDValue,
+		// ua.AttributeIDValueRank,
+		// ua.AttributeIDArrayDimensions,
+		// ua.AttributeIDUserAccessLevel,
+		// ua.AttributeIDMinimumSamplingInterval,
+		// ua.AttributeIDHistorizing,
+		// ua.AttributeIDExecutable,
+		// ua.AttributeIDUserExecutable,
+		// ua.AttributeIDDataTypeDefinition,
+		// ua.AttributeIDRolePermissions,
+		// ua.AttributeIDUserRolePermissions,
+		// ua.AttributeIDAccessRestrictions,
+		// ua.AttributeIDAccessLevelEx,
 	)
 	if err != nil {
 		mqttResp.ConnectionStatus.Status = BrowseFailed
@@ -1554,46 +1554,46 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		def.ParentNodeID = parentNode.ID
 	}
 
+	// switch err := attrs[0].Status; err {
+	// case ua.StatusOK:
+	// 	def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
+
 	switch err := attrs[0].Status; err {
 	case ua.StatusOK:
-		def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
+		def.BrowseName = attrs[0].Value.String()
 	default:
 		log.Printf("[ERROR] %s", err)
 		return
 	}
+
+	// switch err := attrs[2].Status; err {
+	// case ua.StatusOK:
+	// 	def.Description = attrs[2].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
+
+	// switch err := attrs[3].Status; err {
+	// case ua.StatusOK:
+	// 	def.AccessLevel = ua.AccessLevelType(attrs[3].Value.Int())
+	// 	def.Writable = def.AccessLevel&ua.AccessLevelTypeCurrentWrite == ua.AccessLevelTypeCurrentWrite
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
 	switch err := attrs[1].Status; err {
 	case ua.StatusOK:
-		def.BrowseName = attrs[1].Value.String()
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
-
-	switch err := attrs[2].Status; err {
-	case ua.StatusOK:
-		def.Description = attrs[2].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
-
-	switch err := attrs[3].Status; err {
-	case ua.StatusOK:
-		def.AccessLevel = ua.AccessLevelType(attrs[3].Value.Int())
-		def.Writable = def.AccessLevel&ua.AccessLevelTypeCurrentWrite == ua.AccessLevelTypeCurrentWrite
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
-
-	switch err := attrs[4].Status; err {
-	case ua.StatusOK:
-		switch v := attrs[4].Value.NodeID().IntID(); v {
+		switch v := attrs[1].Value.NodeID().IntID(); v {
 		case id.DateTime:
 			def.DataType = "time.Time"
 		case id.Boolean:
@@ -1628,7 +1628,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		return
 	}
 
-	switch err := attrs[5].Status; err {
+	switch err := attrs[2].Status; err {
 	case ua.StatusOK:
 		def.DisplayName = attrs[5].Value.String()
 	case ua.StatusBadAttributeIDInvalid:
@@ -1638,75 +1638,75 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		return
 	}
 
-	switch err := attrs[6].Status; err {
-	case ua.StatusOK:
-		def.WriteMask = attrs[6].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[6].Status; err {
+	// case ua.StatusOK:
+	// 	def.WriteMask = attrs[6].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[7].Status; err {
-	case ua.StatusOK:
-		def.UserWriteMask = attrs[7].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[7].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserWriteMask = attrs[7].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[8].Status; err {
-	case ua.StatusOK:
-		def.IsAbstract = attrs[8].Value.Bool()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[8].Status; err {
+	// case ua.StatusOK:
+	// 	def.IsAbstract = attrs[8].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[9].Status; err {
-	case ua.StatusOK:
-		def.Symmetric = attrs[9].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[9].Status; err {
+	// case ua.StatusOK:
+	// 	def.Symmetric = attrs[9].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[10].Status; err {
-	case ua.StatusOK:
-		def.InverseName = attrs[10].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[10].Status; err {
+	// case ua.StatusOK:
+	// 	def.InverseName = attrs[10].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[11].Status; err {
-	case ua.StatusOK:
-		def.ContainsNoLoops = attrs[11].Value.Bool()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[11].Status; err {
+	// case ua.StatusOK:
+	// 	def.ContainsNoLoops = attrs[11].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[12].Status; err {
-	case ua.StatusOK:
-		def.EventNotifier = attrs[12].Value.ByteArray()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[12].Status; err {
+	// case ua.StatusOK:
+	// 	def.EventNotifier = attrs[12].Value.ByteArray()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
 	// switch err := attrs[13].Status; err {
 	// case ua.StatusOK:
@@ -1717,15 +1717,15 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	// 	return nil, err
 	// }
 
-	switch err := attrs[14].Status; err {
-	case ua.StatusOK:
-		def.ValueRank = attrs[14].Value.Int()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[14].Status; err {
+	// case ua.StatusOK:
+	// 	def.ValueRank = attrs[14].Value.Int()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
 	// switch err := attrs[15].Status; err {
 	// case ua.StatusOK:
@@ -1736,105 +1736,105 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	// 	return nil, err
 	// }
 
-	switch err := attrs[16].Status; err {
-	case ua.StatusOK:
-		def.UserAccessLevel = attrs[16].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[16].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserAccessLevel = attrs[16].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[17].Status; err {
-	case ua.StatusOK:
-		def.MinimumSamplingInterval = attrs[17].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[17].Status; err {
+	// case ua.StatusOK:
+	// 	def.MinimumSamplingInterval = attrs[17].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[18].Status; err {
-	case ua.StatusOK:
-		def.Historizing = attrs[18].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[18].Status; err {
+	// case ua.StatusOK:
+	// 	def.Historizing = attrs[18].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[19].Status; err {
-	case ua.StatusOK:
-		def.Executable = attrs[19].Value.Bool()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[19].Status; err {
+	// case ua.StatusOK:
+	// 	def.Executable = attrs[19].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[20].Status; err {
-	case ua.StatusOK:
-		def.UserExecutable = attrs[20].Value.Bool()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[20].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserExecutable = attrs[20].Value.Bool()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[21].Status; err {
-	case ua.StatusOK:
-		def.DataTypeDefinition = attrs[21].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[21].Status; err {
+	// case ua.StatusOK:
+	// 	def.DataTypeDefinition = attrs[21].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[22].Status; err {
-	case ua.StatusOK:
-		def.RolePermissions = attrs[22].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[22].Status; err {
+	// case ua.StatusOK:
+	// 	def.RolePermissions = attrs[22].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[23].Status; err {
-	case ua.StatusOK:
-		def.UserRolePermissions = attrs[23].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[23].Status; err {
+	// case ua.StatusOK:
+	// 	def.UserRolePermissions = attrs[23].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[24].Status; err {
-	case ua.StatusOK:
-		def.AccessRestrictions = attrs[24].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[24].Status; err {
+	// case ua.StatusOK:
+	// 	def.AccessRestrictions = attrs[24].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
-	switch err := attrs[25].Status; err {
-	case ua.StatusOK:
-		def.AccessLevelEx = attrs[25].Value.String()
-	case ua.StatusBadAttributeIDInvalid:
-		// ignore
-	default:
-		log.Printf("[ERROR] %s", err)
-		return
-	}
+	// switch err := attrs[25].Status; err {
+	// case ua.StatusOK:
+	// 	def.AccessLevelEx = attrs[25].Value.String()
+	// case ua.StatusBadAttributeIDInvalid:
+	// 	// ignore
+	// default:
+	// 	log.Printf("[ERROR] %s", err)
+	// 	return
+	// }
 
 	def.Path = join(path, def.BrowseName)
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
