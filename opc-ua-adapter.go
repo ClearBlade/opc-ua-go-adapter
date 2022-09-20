@@ -1505,7 +1505,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	}
 
 	attrs, err := n.Attributes(
-		// ua.AttributeIDNodeClass,
+		ua.AttributeIDNodeClass,
 		ua.AttributeIDBrowseName,
 		// ua.AttributeIDDescription,
 		// ua.AttributeIDAccessLevel,
@@ -1554,17 +1554,17 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		def.ParentNodeID = parentNode.ID
 	}
 
-	// switch err := attrs[0].Status; err {
-	// case ua.StatusOK:
-	// 	def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
-	// default:
-	// 	log.Printf("[ERROR] %s", err)
-	// 	return
-	// }
-
 	switch err := attrs[0].Status; err {
 	case ua.StatusOK:
-		def.BrowseName = attrs[0].Value.String()
+		def.NodeClass = ua.NodeClass(attrs[0].Value.Int())
+	default:
+		log.Printf("[ERROR] %s", err)
+		return
+	}
+
+	switch err := attrs[1].Status; err {
+	case ua.StatusOK:
+		def.BrowseName = attrs[1].Value.String()
 	default:
 		log.Printf("[ERROR] %s", err)
 		return
@@ -1591,9 +1591,9 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	// 	return
 	// }
 
-	switch err := attrs[1].Status; err {
+	switch err := attrs[2].Status; err {
 	case ua.StatusOK:
-		switch v := attrs[1].Value.NodeID().IntID(); v {
+		switch v := attrs[2].Value.NodeID().IntID(); v {
 		case id.DateTime:
 			def.DataType = "time.Time"
 		case id.Boolean:
@@ -1619,7 +1619,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		case id.Double:
 			def.DataType = "float64"
 		default:
-			def.DataType = attrs[1].Value.NodeID().String()
+			def.DataType = attrs[2].Value.NodeID().String()
 		}
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
@@ -1628,9 +1628,9 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		return
 	}
 
-	switch err := attrs[2].Status; err {
+	switch err := attrs[3].Status; err {
 	case ua.StatusOK:
-		def.DisplayName = attrs[2].Value.String()
+		def.DisplayName = attrs[3].Value.String()
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
@@ -1844,6 +1844,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	}
 
 	browseChildren := func(refType uint32) {
+		// log.Printf("[INFO] wg: %s", wg)
 		defer wg.Done()
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 
