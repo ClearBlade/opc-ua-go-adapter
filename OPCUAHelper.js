@@ -11,10 +11,10 @@ function OPCUAHelper(browseResponse) {
     _populateNodeTree(newBrowseResponse);
   }
 
-  function GetNodeIDFromPathsAndDisplayNames(pathsAndDisplayNames) {
+  function GetNodeIDFromPathsAndNodeNames(pathsAndNodeNames) {
     nodesToReturn = [];
-    pathsAndDisplayNames.array.forEach(function (pathAndDisplayName) {
-      var pathArray = pathAndDisplayName.path.split(".");
+    pathsAndNodeNames.forEach(function (pathAndNodeName) {
+      var pathArray = pathAndNodeName.path.split(".");
       var localNodeTree = _nodeTree;
       for (var i = 0; i < pathArray.length; i++) {
         var childArray = [];
@@ -32,7 +32,7 @@ function OPCUAHelper(browseResponse) {
       }
 
       var nodeToReturn = localNodeTree.find(function (node) {
-        return node.browse_name === pathAndDisplayName.displayName;
+        return node.browse_name === pathAndNodeName.node_name;
       });
 
       if (!!nodeToReturn) {
@@ -76,7 +76,7 @@ function OPCUAHelper(browseResponse) {
 
   return {
     SetBrowseResponse,
-    GetNodeIDFromPathsAndDisplayNames,
+    GetNodeIDFromPathsAndNodeNames,
   };
 }
 //find() polyfill
