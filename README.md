@@ -309,8 +309,25 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 
 ```json
 {
-  "root_node": "ns=2;s=Dynamic", //the root node, STRING
-  "attributes": ["NodeClass", "BrowseName", "DataType"] //array of node attributes to return
+  "root_node": "ns=2;s=Dynamic", //the root node, STRING (optional)
+  "node_list": [
+    {
+      "node_name": "RandomDouble",
+      "path": "ns=2;s=Dynamic.ns=2;s=Dynamic/RandomDouble"
+    },
+    {
+      "node_name": "RandomInt64",
+      "path": "ns=2;s=Dynamic.ns=2;s=Dynamic/RandomInt64"
+    }
+  ],
+  "attributes": [
+    "NodeClass",
+    "BrowseName",
+    "DataType",
+    "DisplayName",
+    "Description",
+    "AccessLevel"
+  ] //array of node attributes to return (all supported shown)
 }
 ```
 
@@ -332,6 +349,16 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
       "node_class": "NodeClassVariable",
       "browse_name": "RandomDouble",
       "data_type": "float64"
+    }
+  ],
+  "node_list": [
+    {
+      "node_name": "RandomDouble",
+      "path": "ns=2;s=Dynamic.ns=2;s=Dynamic/RandomDouble"
+    },
+    {
+      "node_name": "RandomInt64",
+      "path": "ns=2;s=Dynamic.ns=2;s=Dynamic/RandomInt64"
     }
   ],
   "connection_status": {
