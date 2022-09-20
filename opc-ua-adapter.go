@@ -1619,7 +1619,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		case id.Double:
 			def.DataType = "float64"
 		default:
-			def.DataType = attrs[4].Value.NodeID().String()
+			def.DataType = attrs[1].Value.NodeID().String()
 		}
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
@@ -1630,7 +1630,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 
 	switch err := attrs[2].Status; err {
 	case ua.StatusOK:
-		def.DisplayName = attrs[5].Value.String()
+		def.DisplayName = attrs[2].Value.String()
 	case ua.StatusBadAttributeIDInvalid:
 		// ignore
 	default:
