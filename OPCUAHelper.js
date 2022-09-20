@@ -2,29 +2,7 @@
  * Type: Library
  * Description: A library that contains a function which, when called, returns an object with a public API.
  */
-
-//TODO accept an array instead of just a single path and display name
 function OPCUAHelper(browseResponse) {
-  //find() polyfill
-  Array.prototype.find =
-    Array.prototype.find ||
-    function (callback) {
-      if (this === null) {
-        throw new TypeError("Array.prototype.find called on null or undefined");
-      } else if (typeof callback !== "function") {
-        throw new TypeError("callback must be a function");
-      }
-      var list = Object(this);
-      // Makes sures is always has an positive integer as length.
-      var length = list.length >>> 0;
-      var thisArg = arguments[1];
-      for (var i = 0; i < length; i++) {
-        var element = list[i];
-        if (callback.call(thisArg, element, i, list)) {
-          return element;
-        }
-      }
-    };
   browseResponse.nodes.sort(compare);
   var _nodeTree = null;
   _populateNodeTree(browseResponse);
@@ -33,33 +11,35 @@ function OPCUAHelper(browseResponse) {
     _populateNodeTree(newBrowseResponse);
   }
 
-  function GetNodeIDFromPath(path, displayName) {
-    var pathArray = path.split(".");
-    var localNodeTree = _nodeTree;
-    for (var i = 0; i < pathArray.length; i++) {
-      var childArray = [];
+  function GetNodeIDFromPathsAndNodeNames(pathsAndNodeNames) {
+    nodesToReturn = [];
+    pathsAndNodeNames.forEach(function (pathAndNodeName) {
+      var pathArray = pathAndNodeName.path.split(".");
+      var localNodeTree = _nodeTree;
+      for (var i = 0; i < pathArray.length; i++) {
+        var childArray = [];
 
-      localNodeTree = localNodeTree.filter(function (node) {
-        return node.node_id === pathArray[i];
+        localNodeTree = localNodeTree.filter(function (node) {
+          return node.node_id === pathArray[i];
+        });
+
+        for (var j = 0; j < localNodeTree.length; j++) {
+          childArray.push.apply(childArray, localNodeTree[j].children);
+        }
+        if (childArray.length > 0) {
+          localNodeTree = childArray;
+        }
+      }
+
+      var nodeToReturn = localNodeTree.find(function (node) {
+        return node.browse_name === pathAndNodeName.node_name;
       });
 
-      for (var j = 0; j < localNodeTree.length; j++) {
-        childArray.push.apply(childArray, localNodeTree[j].children);
+      if (!!nodeToReturn) {
+        nodesToReturn.push(nodeToReturn.node_id);
       }
-      if (childArray.length > 0) {
-        localNodeTree = childArray;
-      }
-    }
-
-    var nodeToReturn = localNodeTree.find(function (node) {
-      return node.browse_name === displayName;
     });
-
-    if (!!nodeToReturn) {
-      return nodeToReturn.node_id;
-    } else {
-      return null;
-    }
+    return nodesToReturn;
   }
 
   function _populateNodeTree(browseResponse) {
@@ -96,6 +76,26 @@ function OPCUAHelper(browseResponse) {
 
   return {
     SetBrowseResponse,
-    GetNodeIDFromPath,
+    GetNodeIDFromPathsAndNodeNames,
   };
 }
+//find() polyfill
+Array.prototype.find =
+  Array.prototype.find ||
+  function (callback) {
+    if (this === null) {
+      throw new TypeError("Array.prototype.find called on null or undefined");
+    } else if (typeof callback !== "function") {
+      throw new TypeError("callback must be a function");
+    }
+    var list = Object(this);
+    // Makes sures is always has an positive integer as length.
+    var length = list.length >>> 0;
+    var thisArg = arguments[1];
+    for (var i = 0; i < length; i++) {
+      var element = list[i];
+      if (callback.call(thisArg, element, i, list)) {
+        return element;
+      }
+    }
+  };
