@@ -49,8 +49,8 @@ function OPCUAHelper(browseResponse) {
       i;
 
     for (i = 0; i < browseResponse.nodes.length; i += 1) {
-      map[browseResponse.nodes[i].node_id] = i; // initialize the map
-      browseResponse.nodes[i].children = []; // initialize the children
+      map[browseResponse.nodes[i].node_id] = i;
+      browseResponse.nodes[i].children = [];
     }
 
     for (i = 0; i < browseResponse.nodes.length; i += 1) {
@@ -79,7 +79,7 @@ function OPCUAHelper(browseResponse) {
     GetNodeIDFromPathsAndNodeNames,
   };
 }
-//find() polyfill
+// find() polyfill
 Array.prototype.find =
   Array.prototype.find ||
   function (callback) {
