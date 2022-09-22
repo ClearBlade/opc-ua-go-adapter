@@ -323,10 +323,10 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
   "attributes": [
     "NodeClass",
     "BrowseName",
-    "DataType",
-    "DisplayName",
     "Description",
     "AccessLevel"
+    "DataType",
+    "DisplayName",
   ] //array of node attributes to return (all supported shown)
 }
 ```

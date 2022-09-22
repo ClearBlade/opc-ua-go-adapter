@@ -1259,12 +1259,14 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 			NodeList: browseReq.NodeList,
 		}
 
-		mqttResp.Nodes = append(mqttResp.Nodes, node{
-			NodeId:       browseReq.RootNode,
-			Level:        0,
-			BrowseName:   browseReq.RootNode,
-			ParentNodeID: "",
-		})
+		if !contains(nodeList, browseReq.RootNode, 0) {
+			mqttResp.Nodes = append(mqttResp.Nodes, node{
+				NodeId:       browseReq.RootNode,
+				Level:        0,
+				BrowseName:   browseReq.RootNode,
+				ParentNodeID: "",
+			})
+		}
 
 		for _, s := range nodeList {
 			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
@@ -1371,6 +1373,15 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 	}
+}
+
+func contains(n []NodeDef, str string, l int) bool {
+	for _, v := range n {
+		if v.NodeID.String() == str && v.Level == l {
+			return true
+		}
+	}
+	return false
 }
 
 func handleConnectRequest(message *mqttTypes.Publish) {
