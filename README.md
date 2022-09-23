@@ -310,6 +310,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 ```json
 {
   "root_node": "ns=2;s=Dynamic", //the root node, STRING (optional)
+  "level_limit": 10, //Limit the depth of the search (optional)
   "node_list": [
     {
       "node_name": "RandomDouble",

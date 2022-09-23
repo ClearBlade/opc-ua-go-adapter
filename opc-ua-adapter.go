@@ -1232,6 +1232,10 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		browseReq.RootNode = "i=84"
 	}
 
+	if browseReq.LevelLimit == 0 {
+		browseReq.LevelLimit = 10
+	}
+
 	id, err := ua.ParseNodeID(browseReq.RootNode)
 	if err != nil {
 		mqttResp.ConnectionStatus.Status = BrowseFailed
@@ -1248,7 +1252,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	var nodeList []NodeDef
 	var wg sync.WaitGroup
 
-	go browse(&wg, &nodeList, opcuaClient.Node(id), nil, "", 0, &mqttResp)
+	go browse(&wg, &nodeList, opcuaClient.Node(id), nil, "", 0, browseReq.LevelLimit, &mqttResp)
 
 	time.Sleep(time.Second)
 	wg.Wait()
@@ -1260,6 +1264,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 		}
 
 		if !contains(nodeList, browseReq.RootNode, 0) {
+			log.Println("[INFO] appending")
 			mqttResp.Nodes = append(mqttResp.Nodes, node{
 				NodeId:       browseReq.RootNode,
 				Level:        0,
@@ -1507,11 +1512,11 @@ func join(a, b string) string {
 	return a + "." + b
 }
 
-func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *opcua.Node, path string, level int, mqttResp *opcuaBrowseResponseMQTTMessage) {
+func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *opcua.Node, path string, level int, levelLimit int, mqttResp *opcuaBrowseResponseMQTTMessage) {
 
 	log.Printf("[DEBUG] node:%s path:%q level:%d\n", n, path, level)
 
-	if level > 10 {
+	if level > levelLimit {
 		return
 	}
 
@@ -1855,7 +1860,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	}
 
 	browseChildren := func(refType uint32) {
-		defer wg.Done()
+		// defer wg.Done()
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 
 		if err != nil {
@@ -1864,9 +1869,10 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		for _, rn := range refs {
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
 			refNode := opcuaClient.Node(refNodeID)
-			go browse(wg, nodeList, refNode, n, def.Path, level+1, mqttResp)
+			go browse(wg, nodeList, refNode, n, def.Path, level+1, levelLimit, mqttResp)
 		}
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second)
+		wg.Done()
 	}
 
 	wg.Add(1)

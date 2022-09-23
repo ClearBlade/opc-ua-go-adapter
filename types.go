@@ -183,6 +183,7 @@ type opcuaBrowseRequestMQTTMessage struct {
 	RootNode   string    `json:"root_node"`
 	NodeList   []Node    `json:"node_list,omitempty"`
 	Attributes *[]string `json:"attributes,omitempty"`
+	LevelLimit int       `json:"level_limit,omitempty"`
 }
 
 type opcuaBrowseResponseMQTTMessage struct {
