@@ -19,3 +19,5 @@ require (
 replace github.com/clearblade/adapter-go-library => /Users/weston/go/src/adapter-go-library
 
 replace github.com/clearblade/Go-SDK => /Users/weston/go/src/Go-SDK
+
+replace github.com/gopcua/opcua => github.com/clearblade/opcua main
