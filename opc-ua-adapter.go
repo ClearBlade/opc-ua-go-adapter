@@ -1856,7 +1856,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
 
 	// if def.NodeClass == ua.NodeClassVariable {
-	//	*nodeList = append(*nodeList, def)
+		*nodeList = append(*nodeList, def)
 	// }
 
 	browseChildren := func(refType uint32) {
