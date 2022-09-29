@@ -1556,9 +1556,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
-		time.Sleep(time.Second) //give mqtt enough time to send message
-		log.Fatalf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
-		return
+		log.Errorf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
 	}
 
 	var def = NodeDef{
