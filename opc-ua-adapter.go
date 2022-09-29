@@ -1557,6 +1557,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		log.Errorf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
+		return
 	}
 
 	var def = NodeDef{
