@@ -60,6 +60,7 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
+	reconnectTries         = 0
 )
 
 type NodeDef struct {
@@ -1257,125 +1258,126 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	time.Sleep(time.Second)
 	wg.Wait()
 
-	if browseReq.Attributes != nil {
-		mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
-			Nodes:    make([]node, 0),
-			NodeList: browseReq.NodeList,
-		}
-
-		if !contains(nodeList, browseReq.RootNode, 0) {
-			log.Println("[INFO] appending")
-			mqttResp.Nodes = append(mqttResp.Nodes, node{
-				NodeId:       browseReq.RootNode,
-				Level:        0,
-				BrowseName:   browseReq.RootNode,
-				ParentNodeID: "",
-			})
-		}
-
-		for _, s := range nodeList {
-			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
-
-			node := node{}
-			node.NodeId = s.NodeID.String()
-			if s.ParentNodeID != nil {
-				node.ParentNodeID = s.ParentNodeID.String()
+	if mqttResp.ConnectionStatus.Status != BrowseFailed {
+		if browseReq.Attributes != nil {
+			mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
+				Nodes:    make([]node, 0),
+				NodeList: browseReq.NodeList,
 			}
-			node.BrowseName = s.BrowseName
-			node.Level = s.Level
-			for _, a := range *browseReq.Attributes {
-				switch a {
-				case "NodeClass":
-					node.NodeClass = s.NodeClass.String()
-				case "BrowseName":
-					//already set
-					// node.BrowseName = s.BrowseName
-				case "Description":
-					node.Description = s.Description
-				case "AccessLevel":
-					node.AccessLevel = s.AccessLevel.String()
-				// case "Path":
-				// 	node.Path = s.Path
-				case "DataType":
-					node.DataType = s.DataType
-				// case "Writable":
-				// 	node.Writable = s.Writable
-				// case "Unit":
-				// 	node.Unit = s.Unit
-				// case "Scale":
-				// 	node.Scale = s.Scale
-				// case "Min":
-				// 	node.Min = s.Min
-				// case "Max":
-				// 	node.Max = s.Max
-				case "DisplayName":
-					node.DisplayName = s.DisplayName
-				// case "WriteMask":
-				// 	node.WriteMask = s.WriteMask
-				// case "UserWriteMask":
-				// 	node.UserWriteMask = s.UserWriteMask
-				// case "IsAbstract":
-				// 	node.IsAbstract = s.IsAbstract
-				// case "Symmetric":
-				// 	node.Symmetric = s.Symmetric
-				// case "InverseName":
-				// 	node.InverseName = s.InverseName
-				// case "ContainsNoLoops":
-				// 	node.ContainsNoLoops = s.ContainsNoLoops
-				// case "EventNotifier":
-				// 	node.EventNotifier = string(s.EventNotifier)
-				// case "Value":
-				// 	node.Value = s.Value
-				// case "ValueRank":
-				// 	node.ValueRank = s.ValueRank
-				// case "ArrayDimensions":
-				// 	node.ArrayDimensions = string(s.ArrayDimensions)
-				// case "UserAccessLevel":
-				// 	node.UserAccessLevel = s.UserAccessLevel
-				// case "MinimumSamplingInterval":
-				// 	node.MinimumSamplingInterval = s.MinimumSamplingInterval
-				// case "Historizing":
-				// 	node.Historizing = s.Historizing
-				// case "Executable":
-				// 	node.Executable = s.Executable
-				// case "UserExecutable":
-				// 	node.UserExecutable = s.UserExecutable
-				// case "DataTypeDefinition":
-				// 	node.DataTypeDefinition = s.DataTypeDefinition
-				// case "RolePermissions":
-				// 	node.RolePermissions = s.RolePermissions
-				// case "UserRolePermissions":
-				// 	node.UserRolePermissions = s.UserRolePermissions
-				// case "AccessRestrictions":
-				// 	node.AccessRestrictions = s.AccessRestrictions
-				// case "AccessLevelEx":
-				// 	node.AccessLevelEx = s.AccessLevelEx
-				default:
-					log.Printf("[ERROR] Unknown Attribute type %s\n", a)
+
+			if !contains(nodeList, browseReq.RootNode, 0) {
+				mqttResp.Nodes = append(mqttResp.Nodes, node{
+					NodeId:       browseReq.RootNode,
+					Level:        0,
+					BrowseName:   browseReq.RootNode,
+					ParentNodeID: "",
+				})
+			}
+
+			for _, s := range nodeList {
+				log.Println("[DEBUG] NodeID: " + s.NodeID.String())
+
+				node := node{}
+				node.NodeId = s.NodeID.String()
+				if s.ParentNodeID != nil {
+					node.ParentNodeID = s.ParentNodeID.String()
 				}
+				node.BrowseName = s.BrowseName
+				node.Level = s.Level
+				for _, a := range *browseReq.Attributes {
+					switch a {
+					case "NodeClass":
+						node.NodeClass = s.NodeClass.String()
+					case "BrowseName":
+						//already set
+						// node.BrowseName = s.BrowseName
+					case "Description":
+						node.Description = s.Description
+					case "AccessLevel":
+						node.AccessLevel = s.AccessLevel.String()
+					// case "Path":
+					// 	node.Path = s.Path
+					case "DataType":
+						node.DataType = s.DataType
+					// case "Writable":
+					// 	node.Writable = s.Writable
+					// case "Unit":
+					// 	node.Unit = s.Unit
+					// case "Scale":
+					// 	node.Scale = s.Scale
+					// case "Min":
+					// 	node.Min = s.Min
+					// case "Max":
+					// 	node.Max = s.Max
+					case "DisplayName":
+						node.DisplayName = s.DisplayName
+					// case "WriteMask":
+					// 	node.WriteMask = s.WriteMask
+					// case "UserWriteMask":
+					// 	node.UserWriteMask = s.UserWriteMask
+					// case "IsAbstract":
+					// 	node.IsAbstract = s.IsAbstract
+					// case "Symmetric":
+					// 	node.Symmetric = s.Symmetric
+					// case "InverseName":
+					// 	node.InverseName = s.InverseName
+					// case "ContainsNoLoops":
+					// 	node.ContainsNoLoops = s.ContainsNoLoops
+					// case "EventNotifier":
+					// 	node.EventNotifier = string(s.EventNotifier)
+					// case "Value":
+					// 	node.Value = s.Value
+					// case "ValueRank":
+					// 	node.ValueRank = s.ValueRank
+					// case "ArrayDimensions":
+					// 	node.ArrayDimensions = string(s.ArrayDimensions)
+					// case "UserAccessLevel":
+					// 	node.UserAccessLevel = s.UserAccessLevel
+					// case "MinimumSamplingInterval":
+					// 	node.MinimumSamplingInterval = s.MinimumSamplingInterval
+					// case "Historizing":
+					// 	node.Historizing = s.Historizing
+					// case "Executable":
+					// 	node.Executable = s.Executable
+					// case "UserExecutable":
+					// 	node.UserExecutable = s.UserExecutable
+					// case "DataTypeDefinition":
+					// 	node.DataTypeDefinition = s.DataTypeDefinition
+					// case "RolePermissions":
+					// 	node.RolePermissions = s.RolePermissions
+					// case "UserRolePermissions":
+					// 	node.UserRolePermissions = s.UserRolePermissions
+					// case "AccessRestrictions":
+					// 	node.AccessRestrictions = s.AccessRestrictions
+					// case "AccessLevelEx":
+					// 	node.AccessLevelEx = s.AccessLevelEx
+					default:
+						log.Printf("[ERROR] Unknown Attribute type %s\n", a)
+					}
+				}
+
+				mqttResp.Nodes = append(mqttResp.Nodes, node)
+			}
+			mqttResp.ConnectionStatus.Status = BrowseSuccess
+			mqttResp.ConnectionStatus.ErrorMessage = ""
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			_, pubErr = returnBrowseMessageWithAttrs(&mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
 
-			mqttResp.Nodes = append(mqttResp.Nodes, node)
-		}
-		mqttResp.ConnectionStatus.Status = BrowseSuccess
-		mqttResp.ConnectionStatus.ErrorMessage = ""
-		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		_, pubErr = returnBrowseMessageWithAttrs(&mqttResp, *adapterSettings.UseRelay)
-		if pubErr != nil {
-			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
-		}
-
-	} else {
-		for _, s := range nodeList {
-			log.Println("[DEBUG] NodeID: " + s.NodeID.String())
-			mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
-		}
-		mqttResp.ConnectionStatus.Status = BrowseSuccess
-		mqttResp.ConnectionStatus.ErrorMessage = ""
-		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
-		if pubErr != nil {
-			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		} else {
+			for _, s := range nodeList {
+				log.Println("[DEBUG] NodeID: " + s.NodeID.String())
+				mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
+			}
+			mqttResp.ConnectionStatus.Status = BrowseSuccess
+			mqttResp.ConnectionStatus.ErrorMessage = ""
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			_, pubErr = returnBrowseMessage(&mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
 		}
 	}
 }
@@ -1514,11 +1516,11 @@ func join(a, b string) string {
 
 func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *opcua.Node, path string, level int, levelLimit int, mqttResp *opcuaBrowseResponseMQTTMessage) {
 
-	log.Printf("[DEBUG] node:%s path:%q level:%d\n", n, path, level)
-
 	if level > levelLimit {
 		return
 	}
+
+	log.Printf("[DEBUG] node:%s path:%q level:%d\n", n, path, level)
 
 	attrs, err := n.Attributes(
 		ua.AttributeIDNodeClass,
@@ -1549,16 +1551,26 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		// ua.AttributeIDAccessLevelEx,
 	)
 	if err != nil {
-		mqttResp.ConnectionStatus.Status = BrowseFailed
-		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + n.ID.String()
-		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		_, pubErr := returnBrowseMessage(mqttResp, *adapterSettings.UseRelay)
-		if pubErr != nil {
-			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		if strings.Contains(err.Error(), "StatusBadSessionIDInvalid") && reconnectTries < 5 {
+			reconnectTries++
+			time.Sleep(time.Second)
+			opcuaClient = initializeOPCUA()
+			go browse(wg, nodeList, n, parentNode, path, level, levelLimit, mqttResp)
+		} else {
+			reconnectTries = 0
+			mqttResp.ConnectionStatus.Status = BrowseFailed
+			mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + n.ID.String()
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			_, pubErr := returnBrowseMessage(mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
+			return
 		}
-		log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
-		return
 	}
+
+	reconnectTries = 0
 
 	var def = NodeDef{
 		NodeID: n.ID,
@@ -1855,7 +1867,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
 
 	// if def.NodeClass == ua.NodeClassVariable {
-		*nodeList = append(*nodeList, def)
+	*nodeList = append(*nodeList, def)
 	// }
 
 	browseChildren := func(refType uint32) {

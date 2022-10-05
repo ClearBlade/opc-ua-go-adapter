@@ -12,7 +12,7 @@ require (
 	github.com/clearblade/paho.mqtt.golang v1.1.1
 	github.com/gopcua/opcua v0.3.0
 	github.com/hashicorp/logutils v1.0.0 // indirect
-	github.com/pkg/errors v0.9.1
+	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/net v0.0.0-20220121210141-e204ce36a2ba // indirect
 )
 
@@ -20,4 +20,4 @@ replace github.com/clearblade/adapter-go-library => /Users/weston/go/src/adapter
 
 replace github.com/clearblade/Go-SDK => /Users/weston/go/src/Go-SDK
 
-replace github.com/gopcua/opcua => github.com/clearblade/opcua main
+replace github.com/gopcua/opcua => github.com/clearblade/opcua v0.0.0-20220928060705-5afeda9d473f
