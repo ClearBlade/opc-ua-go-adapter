@@ -60,7 +60,6 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
-	reconnectTries         = 0
 )
 
 type NodeDef struct {
@@ -1551,26 +1550,24 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		// ua.AttributeIDAccessLevelEx,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "StatusBadSessionIDInvalid") && reconnectTries < 5 {
-			reconnectTries++
-			time.Sleep(time.Second)
-			opcuaClient = initializeOPCUA()
-			go browse(wg, nodeList, n, parentNode, path, level, levelLimit, mqttResp)
-		} else {
-			reconnectTries = 0
-			mqttResp.ConnectionStatus.Status = BrowseFailed
-			mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + n.ID.String()
-			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
-			_, pubErr := returnBrowseMessage(mqttResp, *adapterSettings.UseRelay)
-			if pubErr != nil {
-				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
-			}
-			log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
-			return
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to browse nodes: " + err.Error() + ", RootId: " + n.ID.String()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr := returnBrowseMessage(mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
+		log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
+		time.Sleep(time.Second * 2)
+		opcuaClient = initializeOPCUA()
+		return
+
 	}
 
-	reconnectTries = 0
+	if len(attrs) == 0 {
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		return
+	}
 
 	var def = NodeDef{
 		NodeID: n.ID,
