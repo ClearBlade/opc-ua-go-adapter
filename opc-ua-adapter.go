@@ -1558,10 +1558,37 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
+
+		opcuaConnected = false
+
+		connectionStatus := adapter_library.ConnectionStatus{
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Status:    ConnectionFailed,
+		}
+
+		mqttConnectionResp := opcuaConnectionResponseMQTTMessage{
+			ConnectionStatus: connectionStatus,
+		}
+		mqttConnectionResp.ConnectionStatus.ErrorMessage = "Error when creating node attributes array: " + err.Error()
+		mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		token.Wait()
+
 		time.Sleep(time.Second * 2)
 		opcuaClient = initializeOPCUA()
-		return
 
+		mqttConnectionResp.ConnectionStatus.Status = ConnectionSuccess
+		mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		opcuaConnected = true
+
+		return
 	}
 
 	if len(attrs) == 0 {
