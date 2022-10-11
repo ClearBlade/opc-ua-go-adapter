@@ -41,6 +41,7 @@ const (
 	subscribeTopic     = "subscribe"
 	publishTopic       = "publish"
 	browseTopic        = "browse"
+	browsePathTopic    = "browsePath"
 	connectTopic       = "connect"
 	browseTagNameTopic = "discover"
 	ConnectionPending  = "ConnectionPending"
@@ -364,6 +365,9 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 		} else if strings.Contains(message.Topic.Whole, browseTopic) {
 			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
 			go handleBrowseRequest(message)
+		} else if strings.Contains(message.Topic.Whole, browsePathTopic) {
+			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse path request")
+			go handleBrowsePathRequest(message)
 		} else if strings.Contains(message.Topic.Whole, connectTopic) {
 			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
 			go handleConnectRequest(message)
@@ -453,7 +457,7 @@ func handleReadRequest(message *mqttTypes.Publish) {
 	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", mqttResp)
 }
 
-//OPC UA Attribute Service Set - write
+// OPC UA Attribute Service Set - write
 func handleWriteRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaWriteResponseMQTTMessage{
@@ -704,7 +708,7 @@ func getTagDataType(nodeid *ua.NodeID) (*ua.TypeID, error) {
 	return &nodeType, nil
 }
 
-//OPC UA Method Service Set
+// OPC UA Method Service Set
 func handleMethodRequest(message *mqttTypes.Publish) {
 	methodReq := opcuaMethodRequestMQTTMessage{}
 
@@ -791,7 +795,7 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", &mqttResp)
 }
 
-//OPC UA Subscription Service Set
+// OPC UA Subscription Service Set
 func handleSubscriptionRequest(message *mqttTypes.Publish) {
 	subReq := opcuaSubscriptionRequestMQTTMessage{}
 
@@ -818,7 +822,7 @@ func handleSubscriptionRequest(message *mqttTypes.Publish) {
 	}
 }
 
-//OPC UA Subscription Service Set - Create
+// OPC UA Subscription Service Set - Create
 func handleSubscriptionCreate(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	jsonString, _ := json.Marshal(*subReq.RequestParams)
 	parms := opcuaSubscriptionCreateParmsMQTTMessage{}
@@ -1095,7 +1099,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	}
 }
 
-//OPC UA Subscription Service Set - Delete
+// OPC UA Subscription Service Set - Delete
 func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	jsonString, _ := json.Marshal(*subReq.RequestParams)
 	parms := opcuaSubscriptionDeleteParmsMQTTMessage{}
@@ -1381,9 +1385,93 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	}
 }
 
+func handleBrowsePathRequest(message *mqttTypes.Publish) {
+
+	connectionStatus := adapter_library.ConnectionStatus{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    BrowsePending,
+	}
+
+	mqttResp := opcuaBrowsePathResponseMQTTMessage{
+		ConnectionStatus: connectionStatus,
+	}
+
+	_, pubErr := returnBrowsePathMessage(&mqttResp, *adapterSettings.UseRelay)
+	if pubErr != nil {
+		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+	}
+
+	browseReq := opcuaBrowseRequestMQTTMessage{}
+	err := json.Unmarshal(message.Payload, &browseReq)
+	if err != nil {
+		mqttResp.ConnectionStatus.Status = BrowseFailed
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to unmarshal request JSON: " + err.Error()
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowsePathMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
+		return
+	}
+
+	if browseReq.RootNode == "" {
+		browseReq.RootNode = "i=84"
+	}
+
+	if browseReq.LevelLimit == 0 {
+		browseReq.LevelLimit = 20
+	}
+
+	mqttResp.Nodes = browseReq.NodeList
+
+	var wg sync.WaitGroup
+
+	for _, n := range mqttResp.Nodes {
+		id, err := ua.ParseNodeID(browseReq.RootNode)
+		if err != nil {
+			mqttResp.ConnectionStatus.Status = BrowseFailed
+			mqttResp.ConnectionStatus.ErrorMessage = "Invalid node id: " + err.Error() + ", RootId: " + browseReq.RootNode
+			mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			_, pubErr = returnBrowsePathMessage(&mqttResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			log.Printf("[ERROR] Invalid node id: %s, RootId: %s", err.Error(), browseReq.RootNode)
+			return
+		}
+
+		splitPath := strings.Split(n.Path, ".")
+
+		go browsePath(&wg, &n, opcuaClient.Node(id), nil, 0, browseReq.LevelLimit, &mqttResp, splitPath)
+	}
+
+	time.Sleep(time.Second)
+	wg.Wait()
+
+	if mqttResp.ConnectionStatus.Status != BrowseFailed {
+		mqttResp.ConnectionStatus.Status = BrowseSuccess
+		mqttResp.ConnectionStatus.ErrorMessage = ""
+		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+		_, pubErr = returnBrowsePathMessage(&mqttResp, *adapterSettings.UseRelay)
+		if pubErr != nil {
+			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+		}
+	}
+}
+
 func contains(n []NodeDef, str string, l int) bool {
 	for _, v := range n {
 		if v.NodeID.String() == str && v.Level == l {
+			return true
+		}
+	}
+	return false
+}
+
+func sliceContains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
 			return true
 		}
 	}
@@ -1431,6 +1519,20 @@ func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMess
 }
 
 func returnBrowseMessage(resp *opcuaBrowseResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
+}
+
+func returnBrowsePathMessage(resp *opcuaBrowsePathResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
 	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
 	if useRelay {
 		topic = topic + "/_platform"
@@ -1905,6 +2007,56 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
 			refNode := opcuaClient.Node(refNodeID)
 			go browse(wg, nodeList, refNode, n, def.Path, level+1, levelLimit, mqttResp)
+		}
+		time.Sleep(time.Second)
+		wg.Done()
+	}
+
+	wg.Add(1)
+	go browseChildren(id.HasComponent)
+	wg.Add(1)
+	go browseChildren(id.Organizes)
+	wg.Add(1)
+	go browseChildren(id.HasProperty)
+}
+
+func browsePath(wg *sync.WaitGroup, nodeToFilter *Node, n *opcua.Node, parentNode *opcua.Node, level int, levelLimit int, mqttResp *opcuaBrowsePathResponseMQTTMessage, splitPath []string) {
+
+	if level > levelLimit {
+		return
+	}
+
+	log.Printf("[DEBUG] node:%s level:%d\n", n, level)
+
+	browseChildren := func(refType uint32) {
+		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
+
+		if err != nil {
+			log.Printf("[ERROR] References: %d: %s", refType, err)
+		}
+
+		for _, rn := range refs {
+			refNodeID := ua.MustParseNodeID(rn.ID.String())
+			refNode := opcuaClient.Node(refNodeID)
+			browseName, _ := refNode.BrowseName()
+
+			if !sliceContains(splitPath, browseName.Name) {
+				continue
+			}
+
+			if nodeToFilter.NodeName == browseName.Name {
+				node := Node{
+					NodeID:   refNodeID.String(),
+					NodeName: browseName.Name,
+					Path:     nodeToFilter.Path,
+				}
+
+				mqttResp.Nodes = append(mqttResp.Nodes, node)
+				wg.Done()
+				return
+			}
+
+			go browsePath(wg, nodeToFilter, refNode, n, level+1, levelLimit, mqttResp, splitPath)
 		}
 		time.Sleep(time.Second)
 		wg.Done()

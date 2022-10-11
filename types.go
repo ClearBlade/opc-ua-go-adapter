@@ -87,7 +87,6 @@ const (
 // keepalive - The maximum number of times the publish timer expires without sending any notifications before sending a keepalive message.
 // max_publish_notifications - The maximum number of notifications that the Client wishes to receive in a single Publish response.
 // priority - Indicates the relative priority of the Subscription
-//
 type opcuaSubscriptionCreateParmsMQTTMessage struct {
 	PublishInterval            *uint32                                `json:"publish_interval,omitempty"`
 	LifetimeCount              *uint32                                `json:"lifetime,omitempty"`
@@ -106,8 +105,8 @@ type opcuaSubscriptionDeleteParmsMQTTMessage struct {
 	SubscriptionID uint32 `json:"subscription_id"`
 }
 
-//TODO - MonitoringParameters - Build out structure, figure out how to implement Filter
-//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
+// TODO - MonitoringParameters - Build out structure, figure out how to implement Filter
+// TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemCreateMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	Values bool   `json:"values"`
@@ -123,7 +122,7 @@ type opcuaMonitoredItemCreateMQTTMessage struct {
 	// DiscardOldest    bool
 }
 
-//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
+// TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemCreateResultMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
@@ -137,7 +136,7 @@ type opcuaMonitoredItemCreateResultMQTTMessage struct {
 	TimestampsToReturn      uint32 `json:"timestamps_to_return,omitempty"`
 }
 
-//TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
+// TODO - Uncomment AttributeID when we are ready to handle more than ua.AttributeIDValue
 type opcuaMonitoredItemNotificationMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
@@ -146,7 +145,7 @@ type opcuaMonitoredItemNotificationMQTTMessage struct {
 	Event        opcuaEventMessage `json:"event,omitempty"`
 }
 
-//eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
+// eventFieldNames        = []string{"EventId", "EventType", "Severity", "Time", "Message"}
 type opcuaEventMessage struct {
 	EventID     string      `json:"event_id"`
 	EventType   string      `json:"event_type"`
@@ -177,6 +176,7 @@ type opcuaSubscriptionResponseMQTTMessage struct {
 type Node struct {
 	NodeName string `json:"node_name"`
 	Path     string `json:"path"`
+	NodeID   string `json:"node_id,omitempty"`
 }
 
 type opcuaBrowseRequestMQTTMessage struct {
@@ -195,6 +195,11 @@ type opcuaBrowseResponseWithAttrsMQTTMessage struct {
 	Nodes            []node                           `json:"nodes"`
 	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 	NodeList         []Node                           `json:"node_list,omitempty"`
+}
+
+type opcuaBrowsePathResponseMQTTMessage struct {
+	Nodes            []Node                           `json:"nodes"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 }
 
 type node struct {

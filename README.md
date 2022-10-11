@@ -370,6 +370,57 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
+### OPC UA Browse Request Payload Format With Path
+
+```json
+{
+  "root_node": "i=85",
+  "level_limit": 1,
+  "node_list": [
+    {
+      "node_name": "Real-Time",
+      "path": "AggregationServer.AggregatedServers.bhi-acquisition.Objects.Real-Time"
+    },
+    {
+      "node_name": "PredictedTrajectoryStations",
+      "path": "AggregationServer.AggregatedServers.bhi-atdprocessing.Objects.ServiceApplication.PredictedTrajectoryStations"
+    },
+    {
+      "node_name": "InputData",
+      "path": "AggregationServer.AggregatedServers.bhi-atdprocessing.objects.automatedtrajectorydrilling.service monitoring.InputData"
+    }
+  ]
+}
+```
+
+### OPC UA Browse Response Payload Format With Path
+
+```json
+{
+  "nodes": [
+    {
+      "node_id": "ns=51;i=5006",
+      "node_name": "Real-Time",
+      "path": "AggregationServer.AggregatedServers.bhi-acquisition.Objects.Real-Time"
+    },
+    {
+      "node_id": "ns=27;i=5015",
+      "node_name": "PredictedTrajectoryStations",
+      "path": "AggregationServer.AggregatedServers.bhi-atdprocessing.Objects.ServiceApplication.PredictedTrajectoryStations"
+    },
+    {
+      "node_id": "ns=27;i=5006",
+      "node_name": "InputData",
+      "path": "AggregationServer.AggregatedServers.bhi-atdprocessing.objects.automatedtrajectorydrilling.service monitoring.InputData"
+    }
+  ],
+  "connection_status": {
+    "status": "BrowseSuccess",
+    "timestamp": "2022-10-07T06:21:44Z"
+  }
+}
+```
+
 ### OPC UA Connect Request Payload Format
 
 ```json
