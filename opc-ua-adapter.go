@@ -362,12 +362,12 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 		} else if strings.Contains(message.Topic.Whole, subscribeTopic) {
 			log.Println("[INFO] cbMessageHandler - Received OPC UA subscription request")
 			go handleSubscriptionRequest(message)
-		} else if strings.Contains(message.Topic.Whole, browseTopic) {
-			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
-			go handleBrowseRequest(message)
 		} else if strings.Contains(message.Topic.Whole, browsePathTopic) {
 			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse path request")
 			go handleBrowsePathRequest(message)
+		} else if strings.Contains(message.Topic.Whole, browseTopic) {
+			log.Println("[INFO] cbMessageHandler - Recieved OPC UA browse request")
+			go handleBrowseRequest(message)
 		} else if strings.Contains(message.Topic.Whole, connectTopic) {
 			log.Println("[INFO] cbMessageHandler - Received OPC UA connect request")
 			go handleConnectRequest(message)
@@ -1423,11 +1423,10 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 		browseReq.LevelLimit = 20
 	}
 
-	mqttResp.Nodes = browseReq.NodeList
-
 	var wg sync.WaitGroup
 
-	for _, n := range mqttResp.Nodes {
+	for _, n := range browseReq.NodeList {
+		log.Printf("[INFO] node in loop to browse: %s", n)
 		id, err := ua.ParseNodeID(browseReq.RootNode)
 		if err != nil {
 			mqttResp.ConnectionStatus.Status = BrowseFailed
@@ -1443,7 +1442,7 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 
 		splitPath := strings.Split(n.Path, ".")
 
-		go browsePath(&wg, &n, opcuaClient.Node(id), nil, 0, browseReq.LevelLimit, &mqttResp, splitPath)
+		go browsePath(&wg, n, opcuaClient.Node(id), nil, 0, browseReq.LevelLimit, &mqttResp, splitPath)
 	}
 
 	time.Sleep(time.Second)
@@ -1471,7 +1470,7 @@ func contains(n []NodeDef, str string, l int) bool {
 
 func sliceContains(s []string, e string) bool {
 	for _, a := range s {
-		if a == e {
+		if strings.Contains(a, e) {
 			return true
 		}
 	}
@@ -2020,7 +2019,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	go browseChildren(id.HasProperty)
 }
 
-func browsePath(wg *sync.WaitGroup, nodeToFilter *Node, n *opcua.Node, parentNode *opcua.Node, level int, levelLimit int, mqttResp *opcuaBrowsePathResponseMQTTMessage, splitPath []string) {
+func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode *opcua.Node, level int, levelLimit int, mqttResp *opcuaBrowsePathResponseMQTTMessage, splitPath []string) {
 
 	if level > levelLimit {
 		return
@@ -2032,7 +2031,25 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter *Node, n *opcua.Node, parentNod
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 
 		if err != nil {
-			log.Printf("[ERROR] References: %d: %s", refType, err)
+			connectionStatus := adapter_library.ConnectionStatus{
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Status:    ConnectionFailed,
+			}
+
+			mqttConnectionResp := opcuaConnectionResponseMQTTMessage{
+				ConnectionStatus: connectionStatus,
+			}
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "Error when creating node attributes array: " + err.Error()
+			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
+
+			time.Sleep(time.Second * 2)
+
+			log.Fatalf("[FATAL] References: %d: %s", refType, err)
 		}
 
 		for _, rn := range refs {
@@ -2045,6 +2062,7 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter *Node, n *opcua.Node, parentNod
 			}
 
 			if nodeToFilter.NodeName == browseName.Name {
+
 				node := Node{
 					NodeID:   refNodeID.String(),
 					NodeName: browseName.Name,
