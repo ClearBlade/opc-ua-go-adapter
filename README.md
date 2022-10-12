@@ -374,7 +374,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 
 ```json
 {
-  "root_node": "i=85",
+  "root_node": "i=85", //the root node, STRING (optional)
   "node_list": [
     {
       "node_name": "Real-Time",
