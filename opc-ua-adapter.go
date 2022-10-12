@@ -1534,7 +1534,7 @@ func returnBrowsePathMessage(resp *opcuaBrowsePathResponseMQTTMessage, useRelay 
 	if useRelay {
 		topic = topic + "/_platform"
 	}
-	log.Printf("[DEBUG] returnBrowseMessage - publishing to topic %s with message %s\n", topic, resp)
+	log.Printf("[DEBUG] returnBrowsePathMessage - publishing to topic %s with message %s\n", topic, resp)
 	json, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
