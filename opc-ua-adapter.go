@@ -1419,9 +1419,7 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 		browseReq.RootNode = "i=84"
 	}
 
-	if browseReq.LevelLimit == 0 {
-		browseReq.LevelLimit = 20
-	}
+	browseReq.LevelLimit = 20
 
 	var wg sync.WaitGroup
 
@@ -1532,7 +1530,7 @@ func returnBrowseMessage(resp *opcuaBrowseResponseMQTTMessage, useRelay bool) (m
 }
 
 func returnBrowsePathMessage(resp *opcuaBrowsePathResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
-	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/response"
+	topic := adapterConfig.TopicRoot + "/" + browsePathTopic + "/response"
 	if useRelay {
 		topic = topic + "/_platform"
 	}
