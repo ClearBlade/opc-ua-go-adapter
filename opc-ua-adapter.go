@@ -1419,7 +1419,7 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 		browseReq.RootNode = "i=84"
 	}
 
-	browseReq.LevelLimit = 20
+	browseReq.LevelLimit = 20 //arbitrary, to stop unreasonable recursion
 
 	var wg sync.WaitGroup
 
