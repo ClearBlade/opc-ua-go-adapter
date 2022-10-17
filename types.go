@@ -50,20 +50,25 @@ type opcuaWriteResponseMQTTMessage struct {
 }
 
 type opcuaMethodRequestMQTTMessage struct {
-	ObjectID       string        `json:"object_id"`
-	MethodID       string        `json:"method_id"`
-	InputArguments []interface{} `json:"arguments"`
+	ObjectID       string                      `json:"object_id"`
+	MethodID       string                      `json:"method_id"`
+	InputArguments []opcuaMethodInputArguments `json:"arguments"`
+}
+
+type opcuaMethodInputArguments struct {
+	Type  string      `json:"type"`
+	Value interface{} `json:"value"`
 }
 
 type opcuaMethodResponseMQTTMessage struct {
-	ObjectID       string        `json:"object_id"`
-	MethodID       string        `json:"method_id"`
-	Timestamp      string        `json:"timestamp"`
-	Success        bool          `json:"success"`
-	StatusCode     uint32        `json:"status_code"`
-	ErrorMessage   string        `json:"error_message"`
-	InputArguments []interface{} `json:"arguments"`
-	OutputValues   []interface{} `json:"values"`
+	ObjectID       string                      `json:"object_id"`
+	MethodID       string                      `json:"method_id"`
+	Timestamp      string                      `json:"timestamp"`
+	Success        bool                        `json:"success"`
+	StatusCode     uint32                      `json:"status_code"`
+	ErrorMessage   string                      `json:"error_message"`
+	InputArguments []opcuaMethodInputArguments `json:"arguments"`
+	OutputValues   []interface{}               `json:"values"`
 }
 
 type SubscriptionOperationType string

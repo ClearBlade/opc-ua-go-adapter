@@ -720,7 +720,7 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		Success:        true,
 		StatusCode:     0,
 		ErrorMessage:   "",
-		InputArguments: []interface{}{},
+		InputArguments: []opcuaMethodInputArguments{},
 		OutputValues:   []interface{}{},
 	}
 
@@ -762,7 +762,33 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 
 	//We need to loop through the input arguments and create variants for each one
 	for _, element := range methodReq.InputArguments {
-		req.InputArguments = append(req.InputArguments, ua.MustVariant(element))
+		switch element.Type {
+		case "string":
+			v, err := ua.NewVariant(element.Value)
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "double":
+			v, err := ua.NewVariant(element.Value)
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "node":
+			//v, err := ua.NewNo
+		default:
+			log.Printf("[ERROR] handleMethodRequest - Unimplemented input argument type provided: %s\n", element.Type)
+			returnMethodError("Invalid input argument type", &mqttResp)
+			return
+		}
+		//req.InputArguments = append(req.InputArguments, ua.MustVariant(element))
 	}
 
 	//Invoke the opcua method
