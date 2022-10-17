@@ -60,6 +60,12 @@ type opcuaMethodInputArguments struct {
 	Value interface{} `json:"value"`
 }
 
+type opcuaMethodInputArgumentNodeType struct {
+	Namespace      uint16      `json:"namespace"`
+	IdentifierType string      `json:"identifier_type"`
+	Identifier     interface{} `json:"identifier"`
+}
+
 type opcuaMethodResponseMQTTMessage struct {
 	ObjectID       string                      `json:"object_id"`
 	MethodID       string                      `json:"method_id"`

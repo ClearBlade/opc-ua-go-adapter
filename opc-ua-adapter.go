@@ -764,15 +764,8 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	for _, element := range methodReq.InputArguments {
 		switch element.Type {
 		case "string":
-			v, err := ua.NewVariant(element.Value)
-			if err != nil {
-				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
-				returnMethodError(err.Error(), &mqttResp)
-				return
-			}
-			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "double":
+		case "int":
 			v, err := ua.NewVariant(element.Value)
 			if err != nil {
 				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
@@ -782,6 +775,38 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 			req.InputArguments = append(req.InputArguments, v)
 			break
 		case "node":
+			nodeDetails := opcuaMethodInputArgumentNodeType{
+				Namespace:      uint16(element.Value.(map[string]interface{})["namespace"].(float64)),
+				IdentifierType: element.Value.(map[string]interface{})["identifier_type"].(string),
+			}
+			switch nodeDetails.IdentifierType {
+			case "numeric":
+				nodeDetails.Identifier = uint32(element.Value.(map[string]interface{})["identifier"].(float64))
+				nodeID := ua.NewNumericNodeID(nodeDetails.Namespace, nodeDetails.Identifier.(uint32))
+				v, err := ua.NewVariant(nodeID)
+				if err != nil {
+					log.Printf("[ERROR] handleMethodRequest - Failed to create numeric node id variant: %s\n", err.Error())
+					returnMethodError(err.Error(), &mqttResp)
+					return
+				}
+				req.InputArguments = append(req.InputArguments, v)
+				break
+			case "string":
+				nodeDetails.Identifier = element.Value.(map[string]interface{})["identifier"].(string)
+				nodeID := ua.NewStringNodeID(nodeDetails.Namespace, nodeDetails.Identifier.(string))
+				v, err := ua.NewVariant(nodeID)
+				if err != nil {
+					log.Printf("[ERROR] handleMethodRequest - Failed to create string node id variant: %s\n", err.Error())
+					returnMethodError(err.Error(), &mqttResp)
+					return
+				}
+				req.InputArguments = append(req.InputArguments, v)
+				break
+			default:
+				log.Printf("[ERROR] handleMethodRequest - Unsupported node identifier type provided: %s\n", nodeDetails.IdentifierType)
+				returnMethodError("Invalid node identifier", &mqttResp)
+				return
+			}
 			//v, err := ua.NewNo
 		default:
 			log.Printf("[ERROR] handleMethodRequest - Unimplemented input argument type provided: %s\n", element.Type)
