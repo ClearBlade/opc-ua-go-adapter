@@ -763,12 +763,10 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	//We need to loop through the input arguments and create variants for each one
 	for _, element := range methodReq.InputArguments {
 		switch element.Type {
-		case "string":
-		case "double":
-		case "int":
+		case "int", "double", "string":
 			v, err := ua.NewVariant(element.Value)
 			if err != nil {
-				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
+				log.Printf("[ERROR] handleMethodRequest - Failed to create %s variant: %s\n", element.Type, err.Error())
 				returnMethodError(err.Error(), &mqttResp)
 				return
 			}
@@ -819,16 +817,16 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	//Invoke the opcua method
 	resp, err := opcuaClient.Call(req)
 
-	//Populate the MQTT response and publish to the platform
-	mqttResp.Timestamp = time.Now().UTC().Format(time.RFC3339)
-	mqttResp.StatusCode = uint32(resp.StatusCode)
-
 	//Check for errors while invoking the method
 	if err != nil {
 		log.Printf("[ERROR] handleMethodRequest - Error invoking OPC UA method: %s\n", err.Error())
 		returnMethodError(err.Error(), &mqttResp)
 		return
 	}
+
+	//Populate the MQTT response and publish to the platform
+	mqttResp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	mqttResp.StatusCode = uint32(resp.StatusCode)
 
 	//Check for bad status codes
 	if resp.StatusCode != ua.StatusOK {
@@ -839,7 +837,8 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 
 	//We need to loop through the input arguments and create variants for each one
 	for _, element := range resp.OutputArguments {
-		mqttResp.OutputValues = append(mqttResp.OutputValues, element.Value())
+		resp.
+			mqttResp.OutputValues = append(mqttResp.OutputValues, element.Value())
 	}
 
 	//Publish the response to the platform
