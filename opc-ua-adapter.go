@@ -136,7 +136,7 @@ func main() {
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
-	go checkState()
+	go checkStateAndKeepAlive()
 
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
@@ -155,18 +155,65 @@ func main() {
 
 }
 
-func checkState() {
+func checkStateAndKeepAlive() {
 	for {
 		time.Sleep(time.Second * 5)
-		if opcuaClient.State() == opcua.Closed || opcuaClient.State() == opcua.Disconnected || opcuaClient.State() == opcua.Reconnecting {
-			connectionStatus := adapter_library.ConnectionStatus{
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Status:    ConnectionFailed,
-			}
 
-			mqttConnectionResp := opcuaConnectionResponseMQTTMessage{
-				ConnectionStatus: connectionStatus,
+		connectionStatus := adapter_library.ConnectionStatus{
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Status:    ConnectionFailed,
+		}
+
+		mqttConnectionResp := opcuaConnectionResponseMQTTMessage{
+			ConnectionStatus: connectionStatus,
+		}
+		var nodeID = "i=85"
+
+		id, err := ua.ParseNodeID(nodeID)
+		if err != nil {
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "KeepAlive invalid node id: " + err.Error()
+			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
+			token.Wait()
+			time.Sleep(time.Second * 2)
+			log.Fatalf("[FATAL] KeepAlive invalid node id: %v", err)
+		}
+
+		req := &ua.ReadRequest{
+			MaxAge:             2000,
+			NodesToRead:        []*ua.ReadValueID{{NodeID: id, AttributeID: 1}},
+			TimestampsToReturn: ua.TimestampsToReturnBoth,
+		}
+
+		resp, err := opcuaClient.Read(req)
+		if err != nil {
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "KeepAlive Read failed: " + err.Error()
+			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
+			time.Sleep(time.Second * 2)
+			log.Fatalf("[FATAL] KeepAlive Read failed: %s", err)
+		}
+		if resp.Results[0].Status != ua.StatusOK {
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "KeepAlive Status not OK: " + fmt.Sprint(resp.Results[0].Status)
+			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
+			time.Sleep(time.Second * 2)
+			log.Fatalf("[FATAL] KeepAlive Status not OK: %v", resp.Results[0].Status)
+		}
+		log.Printf("[DEBUG] KeepAlive at server Timestamp %v", resp.Results[0].ServerTimestamp)
+
+		if opcuaClient.State() == opcua.Closed || opcuaClient.State() == opcua.Disconnected || opcuaClient.State() == opcua.Reconnecting {
 			mqttConnectionResp.ConnectionStatus.ErrorMessage = "OPCUA Server disconnected or connection closed"
 			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
@@ -205,8 +252,9 @@ func initializeOPCUA() *opcua.Client {
 		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
 
+	ctx := context.Background()
 	// get a list of endpoints for target server
-	endpoints, err := opcua.GetEndpoints(context.Background(), adapterSettings.EndpointURL)
+	endpoints, err := opcua.GetEndpoints(ctx, adapterSettings.EndpointURL)
 	if err != nil {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
 		mqttResp.ConnectionStatus.ErrorMessage = "Failed to get OPC UA Server endpoints: " + err.Error()
@@ -334,7 +382,6 @@ func initializeOPCUA() *opcua.Client {
 	var serverEndpoint *ua.EndpointDescription
 	for _, e := range endpoints {
 		if e.SecurityMode == secMode && e.SecurityPolicyURI == secPolicy {
-
 			serverEndpoint = e
 		}
 	}
@@ -353,10 +400,9 @@ func initializeOPCUA() *opcua.Client {
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
 	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
+
 	// opcuaOpts = append(opcuaOpts, opcua.Lifetime(200))
 	// opcuaOpts = append(opcuaOpts, opcua.SessionTimeout(0))
-
-	ctx := context.Background()
 
 	log.Printf("[INFO] Connecting to OPC server address %s\n", adapterSettings.EndpointURL)
 	c := opcua.NewClient(adapterSettings.EndpointURL, opcuaOpts...)
