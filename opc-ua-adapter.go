@@ -763,10 +763,91 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	//We need to loop through the input arguments and create variants for each one
 	for _, element := range methodReq.InputArguments {
 		switch element.Type {
-		case "int", "double", "string":
-			v, err := ua.NewVariant(element.Value)
+		case "boolean":
+			v, err := ua.NewVariant(element.Value.(bool))
 			if err != nil {
-				log.Printf("[ERROR] handleMethodRequest - Failed to create %s variant: %s\n", element.Type, err.Error())
+				log.Printf("[ERROR] handleMethodRequest - Failed to create boolean variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "int16":
+			v, err := ua.NewVariant(int16(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create int16 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "uint16":
+			v, err := ua.NewVariant(uint16(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create uint16 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "int32":
+			v, err := ua.NewVariant(int32(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create int32 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "uint32":
+			v, err := ua.NewVariant(uint32(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create uint32 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "int64":
+			v, err := ua.NewVariant(int64(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create int64 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "uint64":
+			v, err := ua.NewVariant(uint64(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create uint64 variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "float":
+			v, err := ua.NewVariant(float32(element.Value.(float64)))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create float variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "double":
+			v, err := ua.NewVariant(element.Value.(float64))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create double variant: %s\n", err.Error())
+				returnMethodError(err.Error(), &mqttResp)
+				return
+			}
+			req.InputArguments = append(req.InputArguments, v)
+			break
+		case "string":
+			v, err := ua.NewVariant(element.Value.(string))
+			if err != nil {
+				log.Printf("[ERROR] handleMethodRequest - Failed to create string variant: %s\n", err.Error())
 				returnMethodError(err.Error(), &mqttResp)
 				return
 			}
@@ -805,13 +886,11 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				returnMethodError("Invalid node identifier", &mqttResp)
 				return
 			}
-			//v, err := ua.NewNo
 		default:
 			log.Printf("[ERROR] handleMethodRequest - Unimplemented input argument type provided: %s\n", element.Type)
 			returnMethodError("Invalid input argument type", &mqttResp)
 			return
 		}
-		//req.InputArguments = append(req.InputArguments, ua.MustVariant(element))
 	}
 
 	//Invoke the opcua method
@@ -837,8 +916,7 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 
 	//We need to loop through the input arguments and create variants for each one
 	for _, element := range resp.OutputArguments {
-		resp.
-			mqttResp.OutputValues = append(mqttResp.OutputValues, element.Value())
+		mqttResp.OutputValues = append(mqttResp.OutputValues, element.XMLElement())
 	}
 
 	//Publish the response to the platform
