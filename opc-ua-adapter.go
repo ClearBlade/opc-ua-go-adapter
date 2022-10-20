@@ -136,6 +136,8 @@ func main() {
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
+	go checkState()
+
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
@@ -151,6 +153,31 @@ func main() {
 
 	os.Exit(0)
 
+}
+
+func checkState() {
+	for {
+		time.Sleep(time.Second * 5)
+		if opcuaClient.State() == opcua.Closed || opcuaClient.State() == opcua.Disconnected || opcuaClient.State() == opcua.Reconnecting {
+			connectionStatus := adapter_library.ConnectionStatus{
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Status:    ConnectionFailed,
+			}
+
+			mqttConnectionResp := opcuaConnectionResponseMQTTMessage{
+				ConnectionStatus: connectionStatus,
+			}
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "OPCUA Server disconnected or connection closed"
+			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
+			}
+			token.Wait()
+			time.Sleep(time.Second * 2)
+			log.Fatalf("[FATAL] OPCUA Server disconnected or connection closed")
+		}
+	}
 }
 
 func initializeOPCUA() *opcua.Client {
@@ -189,6 +216,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Failed to get OPC UA Server endpoints: %s\n", err.Error())
 	}
 
@@ -210,6 +238,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalln("[FATAL] Certificate auth type not implemented yet")
 	default:
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
@@ -220,6 +249,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Invalid auth type: %s\n", adapterSettings.Authentication.Type)
 	}
 
@@ -241,6 +271,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Invalid security mode: %s\n", adapterSettings.SecurityMode)
 	}
 
@@ -265,6 +296,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Invalid security policy: %s\n", adapterSettings.SecurityPolicy)
 	}
 
@@ -280,6 +312,7 @@ func initializeOPCUA() *opcua.Client {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
 			token.Wait()
+			time.Sleep(time.Second * 2)
 			log.Fatalf("[FATAL] Failed to load certificates: %s\n", err.Error())
 		}
 		pk, ok := c.PrivateKey.(*rsa.PrivateKey)
@@ -292,6 +325,7 @@ func initializeOPCUA() *opcua.Client {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
 			token.Wait()
+			time.Sleep(time.Second * 2)
 			log.Fatalf("[FATAL] Invalid Private key: %s\n", err.Error())
 		}
 		opcuaOpts = append(opcuaOpts, opcua.PrivateKey(pk), opcua.Certificate(c.Certificate[0]))
@@ -313,12 +347,14 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Failed to find a matching server endpoint with sec-policy %s and sec-mode %s\n", secPolicy, secMode)
 	}
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
 	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
-	//opcuaOpts = append(opcuaOpts, opcua.SessionTimeout(0))
+	// opcuaOpts = append(opcuaOpts, opcua.Lifetime(200))
+	// opcuaOpts = append(opcuaOpts, opcua.SessionTimeout(0))
 
 	ctx := context.Background()
 
@@ -333,6 +369,7 @@ func initializeOPCUA() *opcua.Client {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
 		token.Wait()
+		time.Sleep(time.Second * 2)
 		log.Fatalf("[FATAL] Failed to connect to OPC UA Server: %s\n", err.Error())
 	}
 	mqttResp.ConnectionStatus.Status = ConnectionSuccess
@@ -2172,9 +2209,7 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
 			token.Wait()
-
 			time.Sleep(time.Second * 2)
-
 			log.Fatalf("[FATAL] References: %d: %s", refType, err)
 		}
 
