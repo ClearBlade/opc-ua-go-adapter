@@ -43,6 +43,7 @@ const (
 	browseTopic        = "browse"
 	browsePathTopic    = "browsePath"
 	connectTopic       = "connect"
+	errorTopic         = "error"
 	browseTagNameTopic = "discover"
 	ConnectionPending  = "ConnectionPending"
 	ConnectionFailed   = "ConnectionFailed"
@@ -196,6 +197,25 @@ func checkStateAndKeepAlive() {
 			if pubErr != nil {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
+
+			sourceDown := false
+			networkDown := false
+			invalidSession := false
+
+			if strings.Contains(err.Error(), "StatusBadTimeout") {
+				sourceDown = true
+			} else if strings.Contains(err.Error(), "StatusBadTimeout") {
+				networkDown = true
+			} else if strings.Contains(err.Error(), "StatusBadSessionIDInvalid") {
+				invalidSession = true
+			}
+			errorResp := errorDownMQTTMessage{
+				SourceDown:     sourceDown,
+				NetworkDown:    networkDown,
+				InvalidSession: invalidSession,
+				Message:        err.Error(),
+			}
+			returnErrorMessage(&errorResp, *adapterSettings.UseRelay)
 			token.Wait()
 			time.Sleep(time.Second * 2)
 			log.Fatalf("[FATAL] KeepAlive Read failed: %s", err)
@@ -1285,6 +1305,15 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					SubscriptionID: sub.SubscriptionID,
 				}
 				for _, item := range x.Events {
+
+					timeVal := ""
+					receiveTimeVal := ""
+					if item.EventFields[4].Value() != nil {
+						timeVal = item.EventFields[4].Value().(time.Time).UTC().Format(time.RFC3339)
+					}
+					if item.EventFields[5].Value() != nil {
+						receiveTimeVal = item.EventFields[5].Value().(time.Time).UTC().Format(time.RFC3339)
+					}
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
 						Event: opcuaEventMessage{
@@ -1292,8 +1321,8 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 							EventType:   id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
 							SourceNode:  item.EventFields[2].Value().(*ua.NodeID).String(),
 							SourceName:  item.EventFields[3].Value().(string),
-							Time:        item.EventFields[4].Value().(time.Time).UTC().Format(time.RFC3339),
-							ReceiveTime: item.EventFields[5].Value().(time.Time).UTC().Format(time.RFC3339),
+							Time:        timeVal,
+							ReceiveTime: receiveTimeVal,
 							LocalTime:   item.EventFields[6].Value(),
 							Message:     item.EventFields[7].Value().(*ua.LocalizedText).Text,
 							Severity:    uint32(item.EventFields[8].Value().(uint16)),
@@ -1796,6 +1825,22 @@ func returnConnectionMessage(resp *opcuaConnectionResponseMQTTMessage, useRelay 
 	return adapter_library.PublishStatus(topic, json)
 }
 
+func returnErrorMessage(resp *errorDownMQTTMessage, useRelay bool) error {
+	topic := adapterConfig.TopicRoot + "/" + errorTopic + "/response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnErrorMessage - publishing to topic %s with message %s\n", topic, resp)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return err
+	}
+
+	_, err = adapter_library.PublishStatus(topic, json)
+	return err
+}
+
 // Publishes data to a topic
 func publishJson(topic string, data interface{}) {
 	b, err := json.Marshal(data)
@@ -2254,6 +2299,25 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 			if pubErr != nil {
 				log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 			}
+
+			sourceDown := false
+			networkDown := false
+			invalidSession := false
+
+			if strings.Contains(err.Error(), "StatusBadTimeout") {
+				sourceDown = true
+			} else if strings.Contains(err.Error(), "StatusBadTimeout") {
+				networkDown = true
+			} else if strings.Contains(err.Error(), "StatusBadSessionIDInvalid") {
+				invalidSession = true
+			}
+			errorResp := errorDownMQTTMessage{
+				SourceDown:     sourceDown,
+				NetworkDown:    networkDown,
+				InvalidSession: invalidSession,
+				Message:        err.Error(),
+			}
+			returnErrorMessage(&errorResp, *adapterSettings.UseRelay)
 			token.Wait()
 			time.Sleep(time.Second * 2)
 			log.Fatalf("[FATAL] References: %d: %s", refType, err)

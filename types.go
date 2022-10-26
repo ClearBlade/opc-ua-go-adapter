@@ -263,3 +263,10 @@ type opcuaBrowseTagNameResponseMQTTMessage struct {
 	NodeIDs          string                           `json:"node_ids"`
 	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 }
+
+type errorDownMQTTMessage struct {
+	SourceDown     bool   `json:"source_down"`
+	NetworkDown    bool   `json:"network_down"`
+	InvalidSession bool   `json:"invalid_sessionkey"`
+	Message        string `json:"message"`
+}

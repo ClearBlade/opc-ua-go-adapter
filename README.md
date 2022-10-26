@@ -63,12 +63,12 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 
 ### Supported OPC UA Operations
 
-| Operations    |
-| ------------- |
-| `read`        |
-| `write`       |
-| `method`      |
-| `subscribe`   |
+| Operations  |
+| ----------- |
+| `read`      |
+| `write`     |
+| `method`    |
+| `subscribe` |
 
 ## MQTT Topic Structure
 
@@ -170,17 +170,20 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 {
   "object_id": "ns=3;i=1001",
   "method_id": "",
-  "arguments": [{
-    "type": "uint32",  // boolean, int16, uint16, int32, uint32, int64, uint64, float, double, string, node
-    "value": 5
-  }, {
-    "type": "node", // note that node type has a custom value structure to allow you to specify different node types
-    "value": {
-      "namespace": 0,
-      "identifier_type": "numeric", //also can be string
-      "identifier": 85
+  "arguments": [
+    {
+      "type": "uint32", // boolean, int16, uint16, int32, uint32, int64, uint64, float, double, string, node
+      "value": 5
+    },
+    {
+      "type": "node", // note that node type has a custom value structure to allow you to specify different node types
+      "value": {
+        "namespace": 0,
+        "identifier_type": "numeric", //also can be string
+        "identifier": 85
+      }
     }
-  }] //Array of arguments (with types)
+  ] //Array of arguments (with types)
 }
 ```
 
@@ -447,6 +450,17 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
     "status": "ConnectionSuccess", //ConnectionSuccess, ConnectionFailed, or ConnectionPending
     "error_message": "" //will not be returned if empty
   }
+}
+```
+
+### OPC UA Error Response Payload Format
+
+```json
+{
+  "source_down": false,
+  "network_down": false,
+  "invalid_sessionkey": false,
+  "message": ""
 }
 ```
 
