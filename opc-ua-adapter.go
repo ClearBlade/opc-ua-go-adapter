@@ -51,6 +51,7 @@ const (
 	BrowsePending      = "BrowsePending"
 	BrowseFailed       = "BrowseFailed"
 	BrowseSuccess      = "BrowseSuccess"
+	RFC3339Milli       = "2006-01-02T15:04:05.000Z07:00"
 )
 
 var (
@@ -202,7 +203,7 @@ func checkStateAndKeepAlive() {
 			networkDown := false
 			invalidSession := false
 
-			if strings.Contains(err.Error(), "StatusBadTimeout") {
+			if strings.Contains(err.Error(), "StatusBadServerNotConnected") {
 				sourceDown = true
 			} else if strings.Contains(err.Error(), "StatusBadTimeout") {
 				networkDown = true
@@ -540,10 +541,10 @@ func handleReadRequest(message *mqttTypes.Publish) {
 
 	for idx, result := range opcuaResp.Results {
 		if result.Status == ua.StatusOK {
-			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(time.RFC3339)
+			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(RFC3339Milli)
 			mqttResp.Data[readReq.NodeIDs[idx]] = opcuaReadResponseData{
 				Value:           result.Value.Value(),
-				SourceTimestamp: result.SourceTimestamp.Format(time.RFC3339),
+				SourceTimestamp: result.SourceTimestamp.Format(RFC3339Milli),
 			}
 		} else {
 			log.Printf("[ERROR] Read Status not OK for node id %s: %+v\n", readReq.NodeIDs[idx], result.Status)
@@ -732,7 +733,7 @@ func handleWriteRequest(message *mqttTypes.Publish) {
 	}
 
 	mqttResp.NodeID = writeReq.NodeID
-	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.UTC().Format(time.RFC3339)
+	mqttResp.Timestamp = resp.ResponseHeader.Timestamp.UTC().Format(RFC3339Milli)
 	mqttResp.StatusCode = uint32(resp.ResponseHeader.ServiceResult)
 
 	log.Printf("[INFO] OPC UA write successful: %+v\n", resp.Results[0])
@@ -1007,7 +1008,7 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 	}
 
 	//Populate the MQTT response and publish to the platform
-	mqttResp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	mqttResp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 	mqttResp.StatusCode = uint32(resp.StatusCode)
 
 	//Check for bad status codes
@@ -1248,7 +1249,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	log.Printf("[INFO] createSubscription - Added all monitored items")
 
 	//Publish create response
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 
 	if errors {
 		resp.ErrorMessage = "Failed to add all monitor items, see results"
@@ -1270,7 +1271,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			case *ua.DataChangeNotification:
 				resp := opcuaSubscriptionResponseMQTTMessage{
 					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					Timestamp:      time.Now().UTC().Format(RFC3339Milli),
 					Success:        true,
 					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
@@ -1279,6 +1280,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				}
 				for _, item := range x.MonitoredItems {
 					//Get the NodeId from the clientHandleRequestMap
+					resp.StatusCode = uint32(item.Value.Status)
 					if item.Value == nil {
 						log.Printf("[ERROR] item.Value is nil\n")
 						continue
@@ -1297,7 +1299,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 			case *ua.EventNotificationList:
 				resp := opcuaSubscriptionResponseMQTTMessage{
 					RequestType:    SubscriptionPublish,
-					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					Timestamp:      time.Now().UTC().Format(RFC3339Milli),
 					Success:        true,
 					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
@@ -1309,10 +1311,10 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					timeVal := ""
 					receiveTimeVal := ""
 					if item.EventFields[4].Value() != nil {
-						timeVal = item.EventFields[4].Value().(time.Time).UTC().Format(time.RFC3339)
+						timeVal = item.EventFields[4].Value().(time.Time).UTC().Format(RFC3339Milli)
 					}
 					if item.EventFields[5].Value() != nil {
-						receiveTimeVal = item.EventFields[5].Value().(time.Time).UTC().Format(time.RFC3339)
+						receiveTimeVal = item.EventFields[5].Value().(time.Time).UTC().Format(RFC3339Milli)
 					}
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
 						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
@@ -1348,7 +1350,7 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 	resp := opcuaSubscriptionResponseMQTTMessage{
 		//NodeID:       subReq.NodeID,
 		RequestType:    SubscriptionDelete,
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		Timestamp:      time.Now().UTC().Format(RFC3339Milli),
 		Success:        true,
 		StatusCode:     0,
 		ErrorMessage:   "",
@@ -1730,28 +1732,28 @@ func handleConnectRequest(message *mqttTypes.Publish) {
 func returnReadError(errMsg string, resp *opcuaReadResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.ServerTimestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.ServerTimestamp = time.Now().UTC().Format(RFC3339Milli)
 	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", resp)
 }
 
 func returnWriteError(errMsg string, resp *opcuaWriteResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 	publishJson(adapterConfig.TopicRoot+"/"+writeTopic+"/response", resp)
 }
 
 func returnMethodError(errMsg string, resp *opcuaMethodResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", resp)
 }
 
 func returnSubscribeError(errMsg string, resp *opcuaSubscriptionResponseMQTTMessage) {
 	resp.Success = false
 	resp.ErrorMessage = errMsg
-	resp.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	resp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 }
 
@@ -2304,7 +2306,7 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 			networkDown := false
 			invalidSession := false
 
-			if strings.Contains(err.Error(), "StatusBadTimeout") {
+			if strings.Contains(err.Error(), "StatusBadServerNotConnected") {
 				sourceDown = true
 			} else if strings.Contains(err.Error(), "StatusBadTimeout") {
 				networkDown = true
