@@ -1089,10 +1089,10 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 	//https://medium.com/vacatronics/how-to-connect-with-opc-ua-using-go-5d7fdcac6217
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
-		RequestType:  SubscriptionCreate,
-		Timestamp:    "",
-		Success:      true,
-		StatusCode:   0,
+		RequestType: SubscriptionCreate,
+		Timestamp:   "",
+		Success:     true,
+		// StatusCode:   0,
 		ErrorMessage: "",
 		Results:      []interface{}{},
 	}
@@ -1273,14 +1273,12 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					RequestType:    SubscriptionPublish,
 					Timestamp:      time.Now().UTC().Format(RFC3339Milli),
 					Success:        true,
-					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
 					Results:        []interface{}{},
 					SubscriptionID: sub.SubscriptionID,
 				}
 				for _, item := range x.MonitoredItems {
 					//Get the NodeId from the clientHandleRequestMap
-					resp.StatusCode = uint32(item.Value.Status)
 					if item.Value == nil {
 						log.Printf("[ERROR] item.Value is nil\n")
 						continue
@@ -1290,8 +1288,9 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 						continue
 					}
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
-						Value:  item.Value.Value.Value(),
+						NodeID:     (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						StatusCode: uint32(item.Value.Status),
+						Value:      item.Value.Value.Value(),
 					})
 				}
 
@@ -1301,7 +1300,6 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					RequestType:    SubscriptionPublish,
 					Timestamp:      time.Now().UTC().Format(RFC3339Milli),
 					Success:        true,
-					StatusCode:     uint32(ua.StatusOK),
 					ErrorMessage:   "",
 					Results:        []interface{}{},
 					SubscriptionID: sub.SubscriptionID,
@@ -1328,6 +1326,7 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 							LocalTime:   item.EventFields[6].Value(),
 							Message:     item.EventFields[7].Value().(*ua.LocalizedText).Text,
 							Severity:    uint32(item.EventFields[8].Value().(uint16)),
+							// StatusCode:  uint32(item),
 						},
 					})
 				}
@@ -1349,10 +1348,10 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 
 	resp := opcuaSubscriptionResponseMQTTMessage{
 		//NodeID:       subReq.NodeID,
-		RequestType:    SubscriptionDelete,
-		Timestamp:      time.Now().UTC().Format(RFC3339Milli),
-		Success:        true,
-		StatusCode:     0,
+		RequestType: SubscriptionDelete,
+		Timestamp:   time.Now().UTC().Format(RFC3339Milli),
+		Success:     true,
+		// StatusCode:     0,
 		ErrorMessage:   "",
 		SubscriptionID: parms.SubscriptionID,
 	}

@@ -152,6 +152,7 @@ type opcuaMonitoredItemNotificationMQTTMessage struct {
 	NodeID string `json:"node_id"`
 	//AttributeID             uint32  `json:"attribute_id"`
 	ClientHandle uint32            `json:"client_handle"`
+	StatusCode   uint32            `json:"status_code"`
 	Value        interface{}       `json:"value,omitempty"`
 	Event        opcuaEventMessage `json:"event,omitempty"`
 }
@@ -167,6 +168,7 @@ type opcuaEventMessage struct {
 	ReceiveTime string      `json:"receive_time"`
 	LocalTime   interface{} `json:"local_time"`
 	Message     string      `json:"message"`
+	StatusCode  uint32      `json:"status_code",omitempty`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {
@@ -179,9 +181,9 @@ type opcuaSubscriptionResponseMQTTMessage struct {
 	SubscriptionID uint32                    `json:"subscription_id"`
 	Timestamp      string                    `json:"timestamp"`
 	Success        bool                      `json:"success"`
-	StatusCode     uint32                    `json:"status_code"`
-	ErrorMessage   string                    `json:"error_message"`
-	Results        []interface{}             `json:"results"`
+	// StatusCode     uint32                    `json:"status_code"`
+	ErrorMessage string        `json:"error_message"`
+	Results      []interface{} `json:"results"`
 }
 
 type Node struct {
