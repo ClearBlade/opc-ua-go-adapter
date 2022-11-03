@@ -447,8 +447,10 @@ func initializeOPCUA() *opcua.Client {
 	}
 	opcuaConnected = true
 
-	if *adapterSettings.RegisterCustomObjects {
-		registerCustomObjects()
+	if adapterSettings.RegisterCustomObjects != nil {
+		if *adapterSettings.RegisterCustomObjects {
+			registerCustomObjects()
+		}
 	}
 
 	return c
