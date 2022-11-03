@@ -446,7 +446,33 @@ func initializeOPCUA() *opcua.Client {
 		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
 	opcuaConnected = true
+
+	if *adapterSettings.RegisterCustomObjects {
+		registerCustomObjects()
+	}
+
 	return c
+}
+
+func registerCustomObjects() {
+
+	//Create whatever structs are required
+
+	//EXAMPLE:
+
+	// type customStruct struct {
+	// 	Foo string
+	// 	Bar uint32
+	// 	Baz bool
+	// }
+
+	//Register them with the server
+
+	//EXAMPLE:
+
+	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
+	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
+
 }
 
 func cbMessageHandler(message *mqttTypes.Publish) {

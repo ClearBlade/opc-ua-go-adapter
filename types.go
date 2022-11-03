@@ -11,11 +11,12 @@ type opcuaAuthentication struct {
 }
 
 type opcuaAdapterSettings struct {
-	EndpointURL    string              `json:"endpoint_url"`
-	Authentication opcuaAuthentication `json:"authentication"`
-	SecurityMode   string              `json:"security_mode"`
-	SecurityPolicy string              `json:"security_policy"`
-	UseRelay       *bool               `json:"use_relay,omitempty"`
+	EndpointURL           string              `json:"endpoint_url"`
+	Authentication        opcuaAuthentication `json:"authentication"`
+	SecurityMode          string              `json:"security_mode"`
+	SecurityPolicy        string              `json:"security_policy"`
+	UseRelay              *bool               `json:"use_relay,omitempty"`
+	RegisterCustomObjects *bool               `json:"custom_objects,omitempty"`
 }
 
 type opcuaReadRequestMQTTMessage struct {
@@ -168,7 +169,7 @@ type opcuaEventMessage struct {
 	ReceiveTime string      `json:"receive_time"`
 	LocalTime   interface{} `json:"local_time"`
 	Message     string      `json:"message"`
-	StatusCode  uint32      `json:"status_code",omitempty`
+	StatusCode  uint32      `json:"status_code,omitempty"`
 }
 
 type opcuaSubscriptionRequestMQTTMessage struct {
