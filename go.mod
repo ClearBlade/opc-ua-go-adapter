@@ -20,4 +20,4 @@ replace github.com/clearblade/adapter-go-library => /Users/weston/go/src/adapter
 
 replace github.com/clearblade/Go-SDK => /Users/weston/go/src/Go-SDK
 
-replace github.com/gopcua/opcua => github.com/clearblade/opcua v0.0.0-20221024232545-504e246258f2
+replace github.com/gopcua/opcua => github.com/clearblade/opcua v0.0.0-20230117232703-7f6ab74913da

@@ -17,6 +17,7 @@ type opcuaAdapterSettings struct {
 	SecurityPolicy        string              `json:"security_policy"`
 	UseRelay              *bool               `json:"use_relay,omitempty"`
 	RegisterCustomObjects *bool               `json:"custom_objects,omitempty"`
+	KeepAliveRetries      *int                `json:"keep_alive_retries,omitempty"`
 }
 
 type opcuaReadRequestMQTTMessage struct {

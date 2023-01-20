@@ -63,6 +63,8 @@ var (
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
+	retryCounter           = 0
+	keepAliveRetries       = 3
 )
 
 type NodeDef struct {
@@ -127,6 +129,11 @@ func main() {
 		adapterSettings.UseRelay = &useRelayDefault
 	}
 
+	//Handle newer systems with keepAliveRetries setting in adapter_config
+	if adapterSettings.KeepAliveRetries != nil {
+		keepAliveRetries = *adapterSettings.KeepAliveRetries
+	}
+
 	//On reconnect, give the broker some time
 	time.Sleep(time.Second * 2)
 
@@ -139,6 +146,36 @@ func main() {
 	opcuaClient = initializeOPCUA()
 
 	go checkStateAndKeepAlive()
+
+	//DELETE BELOW
+
+	// time.Sleep(time.Second * 2)
+
+	// var nodeID = "ns=2;s=ComplexTypes/CustomStructTypeVariable"
+
+	// id, err := ua.ParseNodeID(nodeID)
+	// if err != nil {
+	// 	log.Println(err.Error())
+	// }
+
+	// log.Println(id)
+
+	// req := &ua.ReadRequest{
+	// 	MaxAge:             2000,
+	// 	NodesToRead:        []*ua.ReadValueID{{NodeID: id}},
+	// 	TimestampsToReturn: ua.TimestampsToReturnBoth,
+	// }
+
+	// resp, err := opcuaClient.Read(req)
+	// if err != nil {
+	// 	log.Println(err.Error())
+	// }
+
+	// log.Println(len(resp.Results))
+	// log.Println(resp.Results[0].Value)
+	// log.Println(resp.Results[0].Value.ExtensionObject())
+
+	//DELETE ABOVE
 
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
@@ -181,7 +218,13 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
-			log.Fatalf("[FATAL] KeepAlive invalid node id: %v", err)
+			retryCounter++
+			if retryCounter > keepAliveRetries {
+				log.Fatalf("[FATAL] KeepAlive invalid node id: %v", err)
+			} else {
+				log.Printf("[ERROR] KeepAlive invalid node id, retry count %d of %d", retryCounter, keepAliveRetries)
+				continue
+			}
 		}
 
 		req := &ua.ReadRequest{
@@ -219,7 +262,13 @@ func checkStateAndKeepAlive() {
 			returnErrorMessage(&errorResp, *adapterSettings.UseRelay)
 			token.Wait()
 			time.Sleep(time.Second * 2)
-			log.Fatalf("[FATAL] KeepAlive Read failed: %s", err)
+			retryCounter++
+			if retryCounter > keepAliveRetries {
+				log.Fatalf("[FATAL] KeepAlive Read failed: %s", err)
+			} else {
+				log.Printf("[ERROR] Keepalive Read failed, retry count %d of %d", retryCounter, keepAliveRetries)
+				continue
+			}
 		}
 		if resp.Results[0].Status != ua.StatusOK {
 			mqttConnectionResp.ConnectionStatus.ErrorMessage = "KeepAlive Status not OK: " + fmt.Sprint(resp.Results[0].Status)
@@ -230,7 +279,13 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
-			log.Fatalf("[FATAL] KeepAlive Status not OK: %v", resp.Results[0].Status)
+			retryCounter++
+			if retryCounter > keepAliveRetries {
+				log.Fatalf("[FATAL] KeepAlive Status not OK: %v", resp.Results[0].Status)
+			} else {
+				log.Printf("[ERROR] KeepAlive Status not OK, retry count %d of %d", retryCounter, keepAliveRetries)
+				continue
+			}
 		}
 		log.Printf("[DEBUG] KeepAlive at server Timestamp %v", resp.Results[0].ServerTimestamp)
 
@@ -243,7 +298,13 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
-			log.Fatalf("[FATAL] OPCUA Server disconnected or connection closed")
+			retryCounter++
+			if retryCounter > keepAliveRetries {
+				log.Fatalf("[FATAL] OPCUA Server disconnected or connection closed")
+			} else {
+				log.Printf("[ERROR] OPCUA Server disconnected or connection closed, retry count %d of %d", retryCounter, keepAliveRetries)
+				continue
+			}
 		}
 	}
 }
@@ -457,6 +518,7 @@ func initializeOPCUA() *opcua.Client {
 }
 
 func registerCustomObjects() {
+	log.Println("[DEBUG] Registering Custom Objects")
 
 	//Create whatever structs are required
 
@@ -468,13 +530,32 @@ func registerCustomObjects() {
 	// 	Baz bool
 	// }
 
+	// type SteeringBehaviourData struct {
+	// 	AzimuthBias   float64
+	// 	BuildRate     float64
+	// 	KiBuild       float64
+	// 	KiWalk        float64
+	// 	TendancyBuild float64
+	// 	TendancyWalk  float64
+	// 	TurnRate      float64
+	// }
+
+	type customStruct struct {
+		Foo string
+		Bar uint32
+		Baz bool
+	}
+
+	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
+	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
+
 	//Register them with the server
 
 	//EXAMPLE:
 
 	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
 	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
-
+	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "Test/SteeringWhelBehaviorDataVariable"), new(SteeringBehaviourData))
 }
 
 func cbMessageHandler(message *mqttTypes.Publish) {
@@ -1174,13 +1255,13 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 
 		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 		if item.Values {
-			log.Println("[ERROR] createSubscription - creating monitored item value request")
+			log.Println("[DEBUG] createSubscription - creating monitored item value request")
 			miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
 			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
 		}
 
 		if item.Events {
-			log.Println("[ERROR] createSubscription - creating monitored item event request")
+			log.Println("[DEBUG] createSubscription - creating monitored item event request")
 			selects := make([]*ua.SimpleAttributeOperand, len(eventFieldNames))
 
 			for i, name := range eventFieldNames {
