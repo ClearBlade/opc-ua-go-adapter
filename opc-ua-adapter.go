@@ -145,6 +145,28 @@ func main() {
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
+	nc := make(chan *opcua.PublishNotificationData)
+
+	sp := &opcua.SubscriptionParameters{
+		Interval: time.Minute,
+	}
+	ds, err := opcuaClient.SubscribeWithContext(context.Background(), sp, nc)
+	if err != nil {
+		log.Fatalf("[FATAL] Failure creating dummy subscription: %s\n", err.Error())
+	}
+
+	sc := make(chan struct{})
+
+	go func(notifyCh <-chan *opcua.PublishNotificationData, stopChan <-chan struct{}) {
+		for {
+			select {
+			case <-stopChan:
+				return
+			case <-notifyCh: // drop notifications
+			}
+		}
+	}(nc, sc)
+
 	go checkStateAndKeepAlive()
 
 	//DELETE BELOW
@@ -183,6 +205,8 @@ func main() {
 	sig := <-c
 
 	log.Printf("[INFO] OS signal %s received, gracefully shutting down adapter.\n", sig)
+
+	ds.Cancel(context.Background())
 
 	err = opcuaClient.Close()
 	if err != nil {
@@ -290,7 +314,7 @@ func checkStateAndKeepAlive() {
 		log.Printf("[DEBUG] KeepAlive at server Timestamp %v", resp.Results[0].ServerTimestamp)
 
 		if opcuaClient.State() == opcua.Closed || opcuaClient.State() == opcua.Disconnected || opcuaClient.State() == opcua.Reconnecting {
-			mqttConnectionResp.ConnectionStatus.ErrorMessage = "OPCUA Server disconnected or connection closed"
+			mqttConnectionResp.ConnectionStatus.ErrorMessage = "OPCUA Client state: " + opcuaClient.State().String()
 			mqttConnectionResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 			token, pubErr := returnConnectionMessage(&mqttConnectionResp, *adapterSettings.UseRelay)
 			if pubErr != nil {
@@ -300,9 +324,9 @@ func checkStateAndKeepAlive() {
 			time.Sleep(time.Second * 2)
 			retryCounter++
 			if retryCounter > keepAliveRetries {
-				log.Fatalf("[FATAL] OPCUA Server disconnected or connection closed")
+				log.Fatalf("[FATAL] OPCUA Client state: %s", opcuaClient.State().String())
 			} else {
-				log.Printf("[ERROR] OPCUA Server disconnected or connection closed, retry count %d of %d", retryCounter, keepAliveRetries)
+				log.Printf("[ERROR] OPCUA Client state: %s, retry count %d of %d", opcuaClient.State().String(), retryCounter, keepAliveRetries)
 				continue
 			}
 		}
