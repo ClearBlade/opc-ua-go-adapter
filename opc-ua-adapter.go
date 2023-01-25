@@ -145,6 +145,7 @@ func main() {
 	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
+	// create a dummy subscription to allow a single subscription to be deleted without error
 	nc := make(chan *opcua.PublishNotificationData)
 
 	sp := &opcua.SubscriptionParameters{
