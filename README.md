@@ -1,28 +1,28 @@
-# OPC UA Go Adapter
+# OPC UA Go adapter
 
-The OPC UA adapter function as a OPC UA Client and allows an IoT Gateway (or any other client) to interact with an OPC UA server.
+The OPC UA adapter functions as an OPC UA client and allows an IoT gateway (or any other client) to interact with an OPC UA server.
 
-Communication with the OPC UA Adapter is enabled through MQTT and configuration Collections which are detailed below.
+Communication with the OPC UA adapter is enabled through MQTT and the configuration collections detailed below.
 
-Currently OPC UA Read and Write are supported by the adapter, with more options to follow.
+Currently, the adapter supports OPC UA read and write, with more options to follow.
 
-## ClearBlade Platform Dependencies
+## ClearBlade Platform dependencies
 
-The OPC UA adapter adapter was constructed to provide the ability to communicate with a _System_ defined in a ClearBlade Platform instance. Therefore, the adapter requires a _System_ to have been created within a ClearBlade Platform instance.
+The OPC UA adapter was constructed to communicate with a _system_ defined in a ClearBlade Platform instance. Therefore, the adapter requires a _system_ to have been created within a ClearBlade Platform instance.
 
-Once a System has been created, artifacts must be defined within the ClearBlade Platform system to allow the adapter to function properly. At a minimum:
+Once a system has been created, artifacts must be defined within the ClearBlade Platform system to allow the adapter to function properly. At a minimum:
 
-- An adapter configuration data collection named `adapter_config` needs to be created in the ClearBlade Platform _system_ and populated with data appropriate to the modbus client adapter adapter. The schema of the data collection should be as follows:
+- An adapter configuration data collection named `adapter_config` needs to be created in the ClearBlade Platform _system_ and populated with data appropriate to the Modbus client adapter. The data collection schema should be as follows:
 
-| Column Name      | Column Datatype |
+| Column name      | Column datatype |
 | ---------------- | --------------- |
 | adapter_name     | string          |
 | adapter_settings | string          |
 | topic_root       | string          |
 
-## Adapter Settings Structure
+## Adapter settings structure
 
-The `adapter_settings` JSON string provided in the `adapter_config` collection is expected to have the following structure. This JSON is how you provide the Adapter with the specific OPC UA Server connection details.
+The `adapter_settings` JSON string provided in the `adapter_config` collection is expected to have the following structure. This JSON is how you provide the adapter with the specific OPC UA server connection details.
 
 ```json
 {
@@ -37,31 +37,31 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 }
 ```
 
-### Supported Authentication types
+### Supported authentication types
 
-| Authentication Type | Details                                                                                                                |
+| Authentication type | Details                                                                                                                |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `Anonymous`         | Use anonymous authentiation, no other fields required in `authentication` object                                       |
-| `Username`          | Use username and password authentication, must include `username` and `password` key/values in `authentication` object |
-| `Certificate`       | Not Yet Implemented                                                                                                    |
+| `Anonymous`         | Use anonymous authentication; no other fields are required in the `authentication` object                              |
+| `Username`          | Use username and password authentication, must include `username` and `password` key/values in the `authentication` object |
+| `Certificate`       | Not yet implemented                                                                                                    |
 
-### Supported Security Mode
+### Supported security mode
 
-| Security Mode    |
+| Security mode    |
 | ---------------- |
 | `None`           |
 | `Sign`           |
 | `SignAndEncrypt` |
 
-### Supported Security Policies
+### Supported security policies
 
-| Security Mode    |
+| Security mode    |
 | ---------------- |
 | `none`           |
 | `Basic256`       |
 | `Basic256SHA256` |
 
-### Supported OPC UA Operations
+### Supported OPC UA operations
 
 | Operations  |
 | ----------- |
@@ -70,28 +70,28 @@ The `adapter_settings` JSON string provided in the `adapter_config` collection i
 | `method`    |
 | `subscribe` |
 
-## MQTT Topic Structure
+## MQTT topic structure
 
-The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA operations. Additionally, the adapter will publish messages to MQTT topics for results of the OPC UA operations. The topic structures utilized are as follows:
+The OPC UA adapter will subscribe to specific topics to handle OPC UA operations. Additionally, the adapter will publish messages to MQTT topics for the OPC UA operation results. The topic structures utilized are as follows:
 
-- OPC UA Read Request: {**TOPIC ROOT**}/read
-- OPC UA Read Results: {**TOPIC ROOT**}/read/response
-- OPC UA Write Request: {**TOPIC ROOT**}/write
-- OPC UA Write Response: {**TOPIC ROOT**}/write/response
-- OPC UA Method Request: {**TOPIC ROOT**}/method
-- OPC UA Method Response: {**TOPIC ROOT**}/method/response
-- OPC UA Subscribe Request: {**TOPIC ROOT**}/subscribe
-  \*\* create, publish, and delete are the only supported services in the opcua library being utilized
-- OPC UA Subscribe Response: {**TOPIC ROOT**}/subscribe/response
-- OPC UA Publish: {**TOPIC ROOT**}/publish/response
-- OPC UA Browse Request: {**TOPIC_ROOT**}/browse/\_edge/{EDGE_ID}
-- OPC UA Browse Results: {**TOPIC_ROOT**}/browse/response
-- OPC UA Connect Request: {**TOPIC_ROOT**}/connect/\_edge/{EDGE_ID}
-- OPC UA Connect Results: {**TOPIC_ROOT**}/connect/response
+- OPC UA read request: {**TOPIC ROOT**}/read
+- OPC UA read results: {**TOPIC ROOT**}/read/response
+- OPC UA write request: {**TOPIC ROOT**}/write
+- OPC UA write response: {**TOPIC ROOT**}/write/response
+- OPC UA method request: {**TOPIC ROOT**}/method
+- OPC UA method response: {**TOPIC ROOT**}/method/response
+- OPC UA subscribe request: {**TOPIC ROOT**}/subscribe
+  \*\* create, publish, and delete are the only supported services in the OPC UA library being utilized
+- OPC UA subscribe response: {**TOPIC ROOT**}/subscribe/response
+- OPC UA publish: {**TOPIC ROOT**}/publish/response
+- OPC UA browse request: {**TOPIC_ROOT**}/browse/\_edge/{EDGE_ID}
+- OPC UA browse results: {**TOPIC_ROOT**}/browse/response
+- OPC UA connect request: {**TOPIC_ROOT**}/connect/\_edge/{EDGE_ID}
+- OPC UA connect results: {**TOPIC_ROOT**}/connect/response
 
-## MQTT Message Structure
+## MQTT message structure
 
-### OPC UA Read Request Payload Format
+### OPC UA read request payload format
 
 ```json
 {
@@ -106,7 +106,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Read Results Payload Format
+### OPC UA read results payload format
 
 ```json
 {
@@ -143,7 +143,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Write Request Payload Format
+### OPC UA write request payload format
 
 ```json
 {
@@ -152,7 +152,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Write Response Payload Format
+### OPC UA write response payload format
 
 ```json
 {
@@ -164,7 +164,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Method Request Payload Format
+### OPC UA method request payload format
 
 ```json
 {
@@ -187,7 +187,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Method Response Payload Format
+### OPC UA method response payload format
 
 ```json
 {
@@ -202,7 +202,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Subscription Request Payload Format
+### OPC UA subscription request payload format
 
 ```json
 {
@@ -210,14 +210,14 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
   "request_params": {
     //One of the following: (see below for schema)
     //
-    //OPC UA Subscription Create Request
-    //OPC UA Subscription Delete Request
-    //OPC UA Subscription Republish Request
+    //OPC UA subscription create request
+    //OPC UA subscription delete request
+    //OPC UA subscription republish request
   }
 }
 ```
 
-### OPC UA Subscription Create Request Payload Format
+### OPC UA subscription create request payload format
 
 ```json
 {
@@ -245,7 +245,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 - The events flag in each _item_to_monitor_ indicates whether or not events should be subscribed to
 - The value flag in each _item_to_monitor_ indicates whether or not value changes should be subscribed to
 
-### OPC UA Subscription Delete Request Payload Format
+### OPC UA subscription delete request payload format
 
 ```json
 {
@@ -253,7 +253,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Subscribe Response Payload Format
+### OPC UA subscribe response payload format
 
 ```json
 {
@@ -292,7 +292,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Browse Request Payload Format
+### OPC UA browse request payload format
 
 ```json
 {
@@ -300,7 +300,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Browse Response Payload Format
+### OPC UA browse response payload format
 
 ```json
 {
@@ -318,7 +318,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Browse Request Payload Format With Attributes
+### OPC UA browse request payload format with attributes
 
 ```json
 {
@@ -341,11 +341,11 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
     "AccessLevel"
     "DataType",
     "DisplayName",
-  ] //array of node attributes to return (all supported shown)
+  ] //node attributes array to return (all supported shown)
 }
 ```
 
-### OPC UA Browse Response Payload Format With Attributes
+### OPC UA browse response payload format with attributes
 
 ```json
 {
@@ -383,7 +383,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Browse Request Payload Format With Path
+### OPC UA browse request payload format with path
 
 ```json
 {
@@ -405,7 +405,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Browse Response Payload Format With Path
+### OPC UA browse response payload format with path
 
 ```json
 {
@@ -433,7 +433,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Connect Request Payload Format
+### OPC UA connect request payload format
 
 ```json
 {
@@ -441,7 +441,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Connect Response Payload Format
+### OPC UA connect response payload format
 
 ```json
 {
@@ -453,7 +453,7 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 }
 ```
 
-### OPC UA Error Response Payload Format
+### OPC UA error response payload format
 
 ```json
 {
@@ -466,11 +466,11 @@ The OPC UA adapter will subscribe to a specific topics in order to handle OPC UA
 
 ## Starting the adapter
 
-This adapter is built using the [adapter-go-library](https://github.com/ClearBlade/adapter-go-library) which allows for multiple options for starting the adapter, including CLI flags and environment variables. It is recommended to use a device service account for authentication with this adapter. See the below chart for available start options as well as their defaults.
+This adapter is built using the [adapter-go-library](https://github.com/ClearBlade/adapter-go-library), allowing multiple options for starting the adapter, including CLI flags and environment variables. Using a device service account for authentication with this adapter is recommended. See the below chart for available start options and their defaults.
 
-All ClearBlade Adapters require a certain set of System specific variables to start and connect with the ClearBlade Platform/Edge. This library allows these to be passed in either by command line arguments, or environment variables. Note that command line arguments take precedence over environment variables.
+All ClearBlade adapters require a certain set of system specific variables to start and connect with the ClearBlade Platform/Edge. This library allows these to be passed in by command line arguments or environment variables. Command line arguments take precedence over environment variables.
 
-| Name                                         | CLI Flag                  | Environment Variable       | Default                                                              |
+| Name                                         | CLI flag                  | Environment variable       | Default                                                              |
 | -------------------------------------------- | ------------------------- | -------------------------- | -------------------------------------------------------------------- |
 | System Key                                   | `systemKey`               | `CB_SYSTEM_KEY`            | N/A                                                                  |
 | System Secret                                | `systemSecret`            | `CB_SYSTEM_SECRET`         | N/A                                                                  |
@@ -485,19 +485,19 @@ All ClearBlade Adapters require a certain set of System specific variables to st
 
 `opc-ua-go-adapter -systemKey=<SYSTEM_KEY> -systemSecret=<SYSTEM_SECRET> -platformURL=<PLATFORM_URL> -messagingURL=<MESSAGING_URL> -deviceName=<DEVICE_NAME> -password=<DEVICE_ACTIVE_KEY> -adapterConfigCollection=<COLLECTION_NAME> -logLevel=<LOG_LEVEL>`
 
-A System Key and System Secret will always be required to start the adapter, and it's recommended to always use a Device Service Account & Token for Adapters.
+A system key and system secret will always be required to start the adapter, and it's recommended to always use a device service account and token for adapters.
 
-Device Name and Password for Adapters are **depreciated** and only provided for backwards compatibility and should not be used for any new adapters.
+Device name and password for adapters are **depreciated** and only provided for backward compatibility and should not be used for any new adapters.
 
 ## Setup
 
 ---
 
-The OPC UA Go adapter is dependent upon the ClearBlade Go SDK and its dependent libraries being installed. The OPC UA Go adapter was written in Go and therefore requires Go to be installed (https://golang.org/doc/install).
+The OPC UA Go adapter depends on the ClearBlade Go SDK and its dependent libraries being installed. The OPC UA Go adapter was written in Go and therefore requires Go to be installed (https://golang.org/doc/install).
 
 ### Adapter compilation
 
-In order to compile the adapter for execution, the following steps need to be performed:
+To compile the adapter for execution, the following steps need to be performed:
 
 1.  Retrieve the adapter source code
     - `git clone git@github.com:ClearBlade/opc-ua-go-adapter.git`
