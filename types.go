@@ -199,6 +199,7 @@ type opcuaBrowseRequestMQTTMessage struct {
 	NodeList   []Node    `json:"node_list,omitempty"`
 	Attributes *[]string `json:"attributes,omitempty"`
 	LevelLimit int       `json:"level_limit,omitempty"`
+	NestedView bool      `json:"nested_view,omitempty"`
 }
 
 type opcuaBrowseResponseMQTTMessage struct {
@@ -273,4 +274,17 @@ type errorDownMQTTMessage struct {
 	NetworkDown    bool   `json:"network_down"`
 	InvalidSession bool   `json:"invalid_sessionkey"`
 	Message        string `json:"message"`
+}
+
+// NestedNode represents a node in a hierarchical tree structure
+type NestedNode struct {
+	NodeId     string       `json:"node_id"`
+	BrowseName string       `json:"browse_name"`
+	Children   []NestedNode `json:"children,omitempty"`
+}
+
+// NestedBrowseResponseMQTTMessage represents a hierarchical browse response
+type NestedBrowseResponseMQTTMessage struct {
+	Nodes            []NestedNode                     `json:"nodes"`
+	ConnectionStatus adapter_library.ConnectionStatus `json:"connection_status"`
 }

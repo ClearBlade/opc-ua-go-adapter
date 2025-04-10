@@ -10,7 +10,7 @@ require (
 	github.com/clearblade/go-utils v1.1.4 // indirect
 	github.com/clearblade/mqtt_parsing v0.0.0-20160301165118-6ae49eac0961
 	github.com/clearblade/paho.mqtt.golang v1.1.1
-	github.com/gopcua/opcua v0.3.7
+	github.com/gopcua/opcua v0.7.4
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/net v0.0.0-20220121210141-e204ce36a2ba // indirect

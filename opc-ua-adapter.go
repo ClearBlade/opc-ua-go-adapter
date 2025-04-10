@@ -59,10 +59,14 @@ var (
 	adapterConfig          *adapter_library.AdapterConfig
 	opcuaClient            *opcua.Client
 	openSubscriptions      = make(map[uint32]*opcua.Subscription)
+	openSubscriptionsMutex sync.Mutex
 	clientHandle           uint32
+	clientHandleMutex      sync.Mutex
 	clientHandleRequestMap = make(map[uint32]map[uint32]interface{})
+	clientHandleMapMutex   sync.Mutex
 	eventFieldNames        = []string{"EventId", "EventType", "SourceNode", "SourceName", "Time", "ReceiveTime", "LocalTime", "Message", "Severity"}
 	opcuaConnected         = false
+	stateMutex             sync.Mutex
 	retryCounter           = 0
 	keepAliveRetries       = 3
 )
@@ -106,8 +110,9 @@ type NodeDef struct {
 }
 
 func main() {
+	var err error
 
-	err := adapter_library.ParseArguments(adapterName)
+	err = adapter_library.ParseArguments(adapterName)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to parse arguments: %s\n", err.Error())
 	}
@@ -123,26 +128,19 @@ func main() {
 		log.Fatalf("[FATAL] Failed to parse Adapter Settings %s\n", err.Error())
 	}
 
-	//Handle older systems without relay setting in adapter_config
+	// Handle older systems without relay setting in adapter_config
 	if adapterSettings.UseRelay == nil {
 		useRelayDefault := true
 		adapterSettings.UseRelay = &useRelayDefault
 	}
 
-	//Handle newer systems with keepAliveRetries setting in adapter_config
+	// Handle newer systems with keepAliveRetries setting in adapter_config
 	if adapterSettings.KeepAliveRetries != nil {
 		keepAliveRetries = *adapterSettings.KeepAliveRetries
 	}
 
-	//On reconnect, give the broker some time
-	time.Sleep(time.Second * 2)
+	connectMQTTWithBackoff()
 
-	err = adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
-	if err != nil {
-		log.Fatalf("[FATAL] Failed to connect MQTT: %s\n", err.Error())
-	}
-
-	// initialize OPC UA connection
 	opcuaClient = initializeOPCUA()
 
 	// create a dummy subscription to allow a single subscription to be deleted without error
@@ -157,8 +155,11 @@ func main() {
 	}
 
 	sc := make(chan struct{})
+	var dummyWg sync.WaitGroup
+	dummyWg.Add(1)
 
-	go func(notifyCh <-chan *opcua.PublishNotificationData, stopChan <-chan struct{}) {
+	go func(notifyCh <-chan *opcua.PublishNotificationData, stopChan chan struct{}, wg *sync.WaitGroup) {
+		defer wg.Done()
 		for {
 			select {
 			case <-stopChan:
@@ -166,39 +167,9 @@ func main() {
 			case <-notifyCh: // drop notifications
 			}
 		}
-	}(nc, sc)
+	}(nc, sc, &dummyWg)
 
 	go checkStateAndKeepAlive()
-
-	//DELETE BELOW
-
-	// time.Sleep(time.Second * 2)
-
-	// var nodeID = "ns=2;s=ComplexTypes/CustomStructTypeVariable"
-
-	// id, err := ua.ParseNodeID(nodeID)
-	// if err != nil {
-	// 	log.Println(err.Error())
-	// }
-
-	// log.Println(id)
-
-	// req := &ua.ReadRequest{
-	// 	MaxAge:             2000,
-	// 	NodesToRead:        []*ua.ReadValueID{{NodeID: id}},
-	// 	TimestampsToReturn: ua.TimestampsToReturnBoth,
-	// }
-
-	// resp, err := opcuaClient.Read(req)
-	// if err != nil {
-	// 	log.Println(err.Error())
-	// }
-
-	// log.Println(len(resp.Results))
-	// log.Println(resp.Results[0].Value)
-	// log.Println(resp.Results[0].Value.ExtensionObject())
-
-	//DELETE ABOVE
 
 	// wait for signal to stop/kill process to allow for graceful shutdown
 	c := make(chan os.Signal, 1)
@@ -207,7 +178,14 @@ func main() {
 
 	log.Printf("[INFO] OS signal %s received, gracefully shutting down adapter.\n", sig)
 
-	ds.Cancel(context.Background())
+	close(sc)
+
+	dummyWg.Wait()
+
+	err = ds.Cancel(context.Background())
+	if err != nil {
+		log.Printf("[ERROR] Failed to cancel dummy subscription: %s\n", err.Error())
+	}
 
 	err = opcuaClient.Close()
 	if err != nil {
@@ -217,6 +195,33 @@ func main() {
 
 	os.Exit(0)
 
+}
+
+func connectMQTTWithBackoff() {
+	baseDelay := 100 * time.Millisecond
+	maxDelay := 10 * time.Second
+	maxAttempts := 5
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		err := adapter_library.ConnectMQTT(adapterConfig.TopicRoot+"/#", cbMessageHandler)
+		if err == nil {
+			log.Printf("[INFO] Successfully connected to MQTT broker on attempt %d", attempt+1)
+			return
+		}
+
+		if attempt == maxAttempts-1 {
+			log.Fatalf("[FATAL] Failed to connect MQTT after %d attempts: %s\n", maxAttempts, err.Error())
+		}
+
+		delay := baseDelay * time.Duration(1<<uint(attempt))
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+
+		log.Printf("[INFO] Connection attempt %d failed: %s. Retrying in %v",
+			attempt+1, err.Error(), delay)
+		time.Sleep(delay)
+	}
 }
 
 func checkStateAndKeepAlive() {
@@ -243,7 +248,11 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
+
+			stateMutex.Lock()
 			retryCounter++
+			stateMutex.Unlock()
+
 			if retryCounter > keepAliveRetries {
 				log.Fatalf("[FATAL] KeepAlive invalid node id: %v", err)
 			} else {
@@ -287,7 +296,10 @@ func checkStateAndKeepAlive() {
 			returnErrorMessage(&errorResp, *adapterSettings.UseRelay)
 			token.Wait()
 			time.Sleep(time.Second * 2)
+			stateMutex.Lock()
 			retryCounter++
+			stateMutex.Unlock()
+
 			if retryCounter > keepAliveRetries {
 				log.Fatalf("[FATAL] KeepAlive Read failed: %s", err)
 			} else {
@@ -304,7 +316,10 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
+			stateMutex.Lock()
 			retryCounter++
+			stateMutex.Unlock()
+
 			if retryCounter > keepAliveRetries {
 				log.Fatalf("[FATAL] KeepAlive Status not OK: %v", resp.Results[0].Status)
 			} else {
@@ -323,7 +338,10 @@ func checkStateAndKeepAlive() {
 			}
 			token.Wait()
 			time.Sleep(time.Second * 2)
+			stateMutex.Lock()
 			retryCounter++
+			stateMutex.Unlock()
+
 			if retryCounter > keepAliveRetries {
 				log.Fatalf("[FATAL] OPCUA Client state: %s", opcuaClient.State().String())
 			} else {
@@ -337,7 +355,9 @@ func checkStateAndKeepAlive() {
 func initializeOPCUA() *opcua.Client {
 	log.Println("[INFO] initializeOPCUA - Creating OPC UA Session")
 
+	stateMutex.Lock()
 	opcuaConnected = false
+	stateMutex.Unlock()
 
 	if adapter_library.Args.LogLevel == "debug" {
 		debug.Enable = true
@@ -360,7 +380,7 @@ func initializeOPCUA() *opcua.Client {
 	}
 
 	ctx := context.Background()
-	// get a list of endpoints for target server
+
 	endpoints, err := opcua.GetEndpoints(ctx, adapterSettings.EndpointURL)
 	if err != nil {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
@@ -376,7 +396,7 @@ func initializeOPCUA() *opcua.Client {
 	}
 
 	var authMode ua.UserTokenType
-	// determine auth type Anonymous, UserName, Certificate
+
 	switch strings.ToLower(adapterSettings.Authentication.Type) {
 	case "anonymous":
 		authMode = ua.UserTokenTypeAnonymous
@@ -409,7 +429,7 @@ func initializeOPCUA() *opcua.Client {
 	}
 
 	var secMode ua.MessageSecurityMode
-	// set security mode None, Sign, SignAndEncrypt
+
 	switch strings.ToLower(adapterSettings.SecurityMode) {
 	case "none":
 		secMode = ua.MessageSecurityModeNone
@@ -430,7 +450,6 @@ func initializeOPCUA() *opcua.Client {
 		log.Fatalf("[FATAL] Invalid security mode: %s\n", adapterSettings.SecurityMode)
 	}
 
-	// set security policy
 	var secPolicy string
 	certsRequired := false
 	switch strings.ToLower(adapterSettings.SecurityPolicy) {
@@ -494,7 +513,7 @@ func initializeOPCUA() *opcua.Client {
 	}
 	if serverEndpoint == nil {
 		mqttResp.ConnectionStatus.Status = ConnectionFailed
-		mqttResp.ConnectionStatus.ErrorMessage = "Failed to find a matching server endpoint with sec-policy " + secMode.String() + " and sec-mode " + secMode.String()
+		mqttResp.ConnectionStatus.ErrorMessage = "Failed to find a matching server endpoint with sec-policy " + secPolicy + " and sec-mode " + secMode.String()
 		mqttResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		token, pubErr := returnConnectionMessage(&mqttResp, *adapterSettings.UseRelay)
 		if pubErr != nil {
@@ -507,9 +526,6 @@ func initializeOPCUA() *opcua.Client {
 
 	opcuaOpts = append(opcuaOpts, opcua.SecurityFromEndpoint(serverEndpoint, authMode))
 	opcuaOpts = append(opcuaOpts, opcua.AutoReconnect(true))
-
-	// opcuaOpts = append(opcuaOpts, opcua.Lifetime(200))
-	// opcuaOpts = append(opcuaOpts, opcua.SessionTimeout(0))
 
 	log.Printf("[INFO] Connecting to OPC server address %s\n", adapterSettings.EndpointURL)
 	c := opcua.NewClient(adapterSettings.EndpointURL, opcuaOpts...)
@@ -531,7 +547,10 @@ func initializeOPCUA() *opcua.Client {
 	if pubErr != nil {
 		log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 	}
+
+	stateMutex.Lock()
 	opcuaConnected = true
+	stateMutex.Unlock()
 
 	if adapterSettings.RegisterCustomObjects != nil {
 		if *adapterSettings.RegisterCustomObjects {
@@ -545,9 +564,8 @@ func initializeOPCUA() *opcua.Client {
 func registerCustomObjects() {
 	log.Println("[DEBUG] Registering Custom Objects")
 
-	//Create whatever structs are required
-
-	//EXAMPLE:
+	// Create whatever structs are required
+	// EXAMPLE:
 
 	// type customStruct struct {
 	// 	Foo string
@@ -574,9 +592,9 @@ func registerCustomObjects() {
 	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
 	ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
 
-	//Register them with the server
+	// Register them with the server
 
-	//EXAMPLE:
+	// EXAMPLE:
 
 	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "ComplexTypes/CustomStructTypeVariable"), new([]byte))
 	// ua.RegisterExtensionObject(ua.NewStringNodeID(2, "DataType.CustomStructType.BinaryEncoding"), new(customStruct))
@@ -585,7 +603,11 @@ func registerCustomObjects() {
 
 func cbMessageHandler(message *mqttTypes.Publish) {
 	//Determine the type of request that was received
-	if opcuaConnected {
+	stateMutex.Lock()
+	isConnected := opcuaConnected
+	stateMutex.Unlock()
+
+	if isConnected {
 		if strings.Contains(message.Topic.Whole, "response") {
 			log.Println("[DEBUG] cbMessageHandler - Received response, ignoring")
 		} else if strings.Contains(message.Topic.Whole, readTopic) {
@@ -628,7 +650,6 @@ func cbMessageHandler(message *mqttTypes.Publish) {
 
 }
 
-// OPC UA Attribute Service Set - read
 func handleReadRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaReadResponseMQTTMessage{
@@ -673,6 +694,10 @@ func handleReadRequest(message *mqttTypes.Publish) {
 		return
 	}
 
+	// Track if any nodes failed
+	anyFailed := false
+	var errorMessages []string
+
 	for idx, result := range opcuaResp.Results {
 		if result.Status == ua.StatusOK {
 			mqttResp.ServerTimestamp = result.ServerTimestamp.Format(RFC3339Milli)
@@ -681,21 +706,26 @@ func handleReadRequest(message *mqttTypes.Publish) {
 				SourceTimestamp: result.SourceTimestamp.Format(RFC3339Milli),
 			}
 		} else {
-			log.Printf("[ERROR] Read Status not OK for node id %s: %+v\n", readReq.NodeIDs[idx], result.Status)
-			returnReadError(fmt.Sprintf("Read Status not OK for node id %s: %+v\n", readReq.NodeIDs[idx], result.Status), &mqttResp)
-			return
+			anyFailed = true
+			errorMsg := fmt.Sprintf("Read Status not OK for node id %s: %+v", readReq.NodeIDs[idx], result.Status)
+			log.Printf("[ERROR] %s", errorMsg)
+			errorMessages = append(errorMessages, errorMsg)
 		}
 	}
 
+	if anyFailed {
+		mqttResp.Success = false
+		mqttResp.ErrorMessage = strings.Join(errorMessages, "; ")
+	}
+
 	if len(mqttResp.Data) == 0 {
-		log.Println("[IFNO] No data received, nothing to publish")
+		log.Println("[INFO] No data received, nothing to publish")
 		return
 	}
 
 	publishJson(adapterConfig.TopicRoot+"/"+readTopic+"/response", mqttResp)
 }
 
-// OPC UA Attribute Service Set - write
 func handleWriteRequest(message *mqttTypes.Publish) {
 
 	mqttResp := opcuaWriteResponseMQTTMessage{
@@ -946,11 +976,9 @@ func getTagDataType(nodeid *ua.NodeID) (*ua.TypeID, error) {
 	return &nodeType, nil
 }
 
-// OPC UA Method Service Set
 func handleMethodRequest(message *mqttTypes.Publish) {
 	methodReq := opcuaMethodRequestMQTTMessage{}
 
-	//Create and initialize the response
 	mqttResp := opcuaMethodResponseMQTTMessage{
 		ObjectID:       "",
 		MethodID:       "",
@@ -962,7 +990,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		OutputValues:   []interface{}{},
 	}
 
-	//Unmarshal the incoming JSON
 	err := json.Unmarshal(message.Payload, &methodReq)
 	if err != nil {
 		log.Printf("[ERROR] handleMethodRequest - Failed to unmarshal method request JSON: %s\n", err.Error())
@@ -970,12 +997,10 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	//Since we were able to parse the input, add fields to the response
 	mqttResp.ObjectID = methodReq.ObjectID
 	mqttResp.MethodID = methodReq.MethodID
 	mqttResp.InputArguments = methodReq.InputArguments
 
-	//Parse the incoming object ID
 	objId, err := ua.ParseNodeID(methodReq.ObjectID)
 	if err != nil {
 		log.Printf("[ERROR] handleMethodRequest - Failed to parse OPC UA Object ID: %s\n", err.Error())
@@ -983,7 +1008,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	//Parse the incoming method ID
 	methodId, err := ua.ParseNodeID(methodReq.MethodID)
 	if err != nil {
 		log.Printf("[ERROR] handleMethodRequest - Failed to parse OPC UA Method ID: %s\n", err.Error())
@@ -991,14 +1015,13 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		return
 	}
 
-	//Populate the opcua request structure
 	req := &ua.CallMethodRequest{
 		ObjectID:       objId,
 		MethodID:       methodId,
 		InputArguments: []*ua.Variant{},
 	}
 
-	//We need to loop through the input arguments and create variants for each one
+	// We need to loop through the input arguments and create variants for each one
 	for _, element := range methodReq.InputArguments {
 		switch element.Type {
 		case "boolean":
@@ -1009,7 +1032,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "int16":
 			v, err := ua.NewVariant(int16(element.Value.(float64)))
 			if err != nil {
@@ -1018,7 +1040,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "uint16":
 			v, err := ua.NewVariant(uint16(element.Value.(float64)))
 			if err != nil {
@@ -1027,7 +1048,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "int32":
 			v, err := ua.NewVariant(int32(element.Value.(float64)))
 			if err != nil {
@@ -1036,7 +1056,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "uint32":
 			v, err := ua.NewVariant(uint32(element.Value.(float64)))
 			if err != nil {
@@ -1045,7 +1064,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "int64":
 			v, err := ua.NewVariant(int64(element.Value.(float64)))
 			if err != nil {
@@ -1054,7 +1072,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "uint64":
 			v, err := ua.NewVariant(uint64(element.Value.(float64)))
 			if err != nil {
@@ -1063,7 +1080,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "float":
 			v, err := ua.NewVariant(float32(element.Value.(float64)))
 			if err != nil {
@@ -1072,7 +1088,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "double":
 			v, err := ua.NewVariant(element.Value.(float64))
 			if err != nil {
@@ -1081,7 +1096,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "string":
 			v, err := ua.NewVariant(element.Value.(string))
 			if err != nil {
@@ -1090,7 +1104,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 				return
 			}
 			req.InputArguments = append(req.InputArguments, v)
-			break
 		case "node":
 			nodeDetails := opcuaMethodInputArgumentNodeType{
 				Namespace:      uint16(element.Value.(map[string]interface{})["namespace"].(float64)),
@@ -1107,7 +1120,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 					return
 				}
 				req.InputArguments = append(req.InputArguments, v)
-				break
 			case "string":
 				nodeDetails.Identifier = element.Value.(map[string]interface{})["identifier"].(string)
 				nodeID := ua.NewStringNodeID(nodeDetails.Namespace, nodeDetails.Identifier.(string))
@@ -1118,7 +1130,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 					return
 				}
 				req.InputArguments = append(req.InputArguments, v)
-				break
 			default:
 				log.Printf("[ERROR] handleMethodRequest - Unsupported node identifier type provided: %s\n", nodeDetails.IdentifierType)
 				returnMethodError("Invalid node identifier", &mqttResp)
@@ -1131,33 +1142,26 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 		}
 	}
 
-	//Invoke the opcua method
 	resp, err := opcuaClient.Call(req)
 
-	//Check for errors while invoking the method
 	if err != nil {
 		log.Printf("[ERROR] handleMethodRequest - Error invoking OPC UA method: %s\n", err.Error())
 		returnMethodError(err.Error(), &mqttResp)
 		return
 	}
 
-	//Populate the MQTT response and publish to the platform
 	mqttResp.Timestamp = time.Now().UTC().Format(RFC3339Milli)
 	mqttResp.StatusCode = uint32(resp.StatusCode)
-
-	//Check for bad status codes
 	if resp.StatusCode != ua.StatusOK {
 		log.Printf("[ERROR] handleMethodRequest - Bad status code returned invoking OPC UA method: %s\n", resp.StatusCode)
 		returnMethodError("Bad status code returned", &mqttResp)
 		return
 	}
 
-	//We need to loop through the input arguments and create variants for each one
 	for _, element := range resp.OutputArguments {
 		mqttResp.OutputValues = append(mqttResp.OutputValues, element.XMLElement())
 	}
 
-	//Publish the response to the platform
 	publishJson(adapterConfig.TopicRoot+"/"+methodTopic+"/response", &mqttResp)
 }
 
@@ -1165,7 +1169,6 @@ func handleMethodRequest(message *mqttTypes.Publish) {
 func handleSubscriptionRequest(message *mqttTypes.Publish) {
 	subReq := opcuaSubscriptionRequestMQTTMessage{}
 
-	//Unmarshal the incoming JSON
 	err := json.Unmarshal(message.Payload, &subReq)
 	if err != nil {
 		log.Printf("[ERROR] handleSubscriptionRequest - Failed to unmarshal subscription request JSON: %s\n", err.Error())
@@ -1247,24 +1250,25 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		return
 	}
 
-	//Store the subscription in the openSubscriptions map, use the SubscriptionID as the key
+	openSubscriptionsMutex.Lock()
 	openSubscriptions[sub.SubscriptionID] = sub
+	openSubscriptionsMutex.Unlock()
+
+	clientHandleMapMutex.Lock()
 	clientHandleRequestMap[sub.SubscriptionID] = make(map[uint32]interface{})
+	clientHandleMapMutex.Unlock()
 
 	log.Printf("[DEBUG] createSubscription - Subscription ID: %+v\n", sub)
 
-	// add subscription id to response
 	resp.SubscriptionID = sub.SubscriptionID
 
 	defer sub.Cancel(context.Background())
 	log.Printf("[INFO] createSubscription - Created subscription with id %d", sub.SubscriptionID)
 
-	//Now that we have a subscription, we need to add the monitored items
 	var miCreateRequests []*ua.MonitoredItemCreateRequest
 
 	errors := false
 	for _, item := range *parms.MonitoredItems {
-
 		log.Printf("[DEBUG] createSubscription - Item to monitor: %+v\n", item)
 
 		nodeId, err := ua.ParseNodeID(item.NodeID)
@@ -1281,8 +1285,11 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 		// TODO - Handle all attribute values, ex. AttributeIDEventNotifier
 		if item.Values {
 			log.Println("[DEBUG] createSubscription - creating monitored item value request")
+
 			miCreateRequests = append(miCreateRequests, opcua.NewMonitoredItemCreateRequestWithDefaults(nodeId, ua.AttributeIDValue, getClientHandle()))
+			clientHandleMapMutex.Lock()
 			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
+			clientHandleMapMutex.Unlock()
 		}
 
 		if item.Events {
@@ -1357,11 +1364,14 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 				},
 			}
 			miCreateRequests = append(miCreateRequests, req)
+			clientHandleMapMutex.Lock()
 			clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
+			clientHandleMapMutex.Unlock()
 		}
 
-		//Add the client handle and request to the map
+		clientHandleMapMutex.Lock()
 		clientHandleRequestMap[sub.SubscriptionID][clientHandle] = item
+		clientHandleMapMutex.Unlock()
 	}
 
 	log.Printf("[DEBUG] createSubscription - Monitored item create requests: %+v\n", miCreateRequests)
@@ -1421,8 +1431,11 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 						log.Println("[ERROR] item.Value.Value is nil")
 						continue
 					}
+					clientHandleMapMutex.Lock()
+					monitoredItem := clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)
+					clientHandleMapMutex.Unlock()
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID:     (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						NodeID:     monitoredItem.NodeID,
 						StatusCode: uint32(item.Value.Status),
 						Value:      item.Value.Value.Value(),
 					})
@@ -1448,8 +1461,13 @@ func createSubscription(subReq *opcuaSubscriptionRequestMQTTMessage, subParms *o
 					if item.EventFields[5].Value() != nil {
 						receiveTimeVal = item.EventFields[5].Value().(time.Time).UTC().Format(RFC3339Milli)
 					}
+
+					clientHandleMapMutex.Lock()
+					monitoredItem := clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)
+					clientHandleMapMutex.Unlock()
+
 					resp.Results = append(resp.Results, opcuaMonitoredItemNotificationMQTTMessage{
-						NodeID: (clientHandleRequestMap[sub.SubscriptionID][item.ClientHandle].(opcuaMonitoredItemCreateMQTTMessage)).NodeID,
+						NodeID: monitoredItem.NodeID,
 						Event: opcuaEventMessage{
 							EventID:     hex.EncodeToString(item.EventFields[0].Value().([]uint8)),
 							EventType:   id.Name(item.EventFields[1].Value().(*ua.NodeID).IntID()),
@@ -1490,35 +1508,36 @@ func handleSubscriptionDelete(subReq *opcuaSubscriptionRequestMQTTMessage) {
 		SubscriptionID: parms.SubscriptionID,
 	}
 
-	//Get the open subscription from the map in storage, using the incoming subscription ID
-	if _, ok := openSubscriptions[parms.SubscriptionID]; !ok {
+	openSubscriptionsMutex.Lock()
+	subscription, ok := openSubscriptions[parms.SubscriptionID]
+	openSubscriptionsMutex.Unlock()
+
+	if !ok {
 		log.Printf("[ERROR] handleSubscriptionDelete - No active subscription for ID: %d\n", parms.SubscriptionID)
 		returnSubscribeError(fmt.Sprintf("No active subscription for ID: %d", parms.SubscriptionID), &resp)
 		return
 	}
 
 	log.Printf("[DEBUG] handleSubscriptionDelete - Deleting subscription: %d\n", parms.SubscriptionID)
-	err := openSubscriptions[parms.SubscriptionID].Cancel(context.Background())
+	err := subscription.Cancel(context.Background())
 
 	if err != nil && err != ua.StatusOK {
-		//handleSubscriptionDelete - Error occurred while deleting subscription:  OK (0x0)
 		log.Printf("[ERROR] handleSubscriptionDelete - Error occurred while deleting subscription: %s\n", err.Error())
-
-		//Publish error to platform
 		returnSubscribeError(err.Error(), &resp)
 		return
 	}
 
 	log.Println("[DEBUG] handleSubscriptionDelete - Subscription deleted")
 
-	//Publish response to platform
 	publishJson(adapterConfig.TopicRoot+"/"+subscribeTopic+"/response", resp)
 
-	//Empty the clientHandleRequestMap for the current subscription
+	clientHandleMapMutex.Lock()
 	delete(clientHandleRequestMap, parms.SubscriptionID)
+	clientHandleMapMutex.Unlock()
 
-	//Delete open subscription from map
+	openSubscriptionsMutex.Lock()
 	delete(openSubscriptions, parms.SubscriptionID)
+	openSubscriptionsMutex.Unlock()
 }
 
 func handleBrowseByTagNameRequest(message *mqttTypes.Publish) {
@@ -1550,7 +1569,7 @@ func handleBrowseByTagNameRequest(message *mqttTypes.Publish) {
 		log.Printf("[ERROR] Failed to unmarshal request JSON: %s\n", err.Error())
 		return
 	}
-	nid, err := ua.ParseNodeID(browseNameReq.RootNode) // Root Node
+	nid, err := ua.ParseNodeID(browseNameReq.RootNode)
 	if err != nil {
 		log.Fatalf("invalid node id: %s\n", err.Error())
 	}
@@ -1561,7 +1580,7 @@ func handleBrowseByTagNameRequest(message *mqttTypes.Publish) {
 		log.Printf("[ERROR] Failed to get browse name for root node id : %s\n", err)
 	}
 	log.Printf("Root Node = %s, BrowseName = %s\n", nid, rootNodeBrowseName.Name)
-	ns, err := n.TranslateBrowsePathInNamespaceToNodeID(browseNameReq.NamespaceIndex, browseNameReq.TagName) // Search by browse name
+	ns, err := n.TranslateBrowsePathInNamespaceToNodeID(browseNameReq.NamespaceIndex, browseNameReq.TagName)
 	if err != nil {
 		log.Fatalf("invalid  TranslateBrowsePathInNamespaceToNodeID: %s", err.Error())
 	}
@@ -1576,8 +1595,93 @@ func handleBrowseByTagNameRequest(message *mqttTypes.Publish) {
 	}
 }
 
-func handleBrowseRequest(message *mqttTypes.Publish) {
+// buildNestedNodeTree converts a flat list of nodes into a hierarchical tree structure
+func buildNestedNodeTree(nodeList []NodeDef) []NestedNode {
+	nodeDataMap := make(map[string]NodeDef)
 
+	childrenMap := make(map[string][]string)
+
+	// First pass: build node data map and parent-child relationships
+	for _, node := range nodeList {
+		nodeID := node.NodeID.String()
+		nodeDataMap[nodeID] = node
+
+		// Record parent-child relationship if parent exists
+		if node.ParentNodeID != nil {
+			parentID := node.ParentNodeID.String()
+			childrenMap[parentID] = append(childrenMap[parentID], nodeID)
+		}
+	}
+
+	// Function to recursively build nested nodes
+	var buildNode func(nodeID string, visited map[string]bool) NestedNode
+	buildNode = func(nodeID string, visited map[string]bool) NestedNode {
+		// Prevent infinite recursion due to circular references
+		if visited[nodeID] {
+			return NestedNode{
+				NodeId:     nodeID,
+				BrowseName: "Circular Reference",
+			}
+		}
+
+		visited[nodeID] = true
+
+		nodeData, exists := nodeDataMap[nodeID]
+		if !exists {
+			return NestedNode{
+				NodeId:     nodeID,
+				BrowseName: "Unknown Node",
+			}
+		}
+
+		// Create nested node with only essential fields
+		nestedNode := NestedNode{
+			NodeId:     nodeID,
+			BrowseName: nodeData.BrowseName,
+			Children:   []NestedNode{},
+		}
+
+		// Recursively build children
+		childIDs := childrenMap[nodeID]
+		for _, childID := range childIDs {
+			// Create a new visited map for each child to allow the same node to appear
+			// in multiple branches of the tree
+			childVisited := make(map[string]bool)
+			for k, v := range visited {
+				childVisited[k] = v
+			}
+
+			childNode := buildNode(childID, childVisited)
+			nestedNode.Children = append(nestedNode.Children, childNode)
+		}
+
+		return nestedNode
+	}
+
+	// Build root nodes
+	var rootNodes []NestedNode
+	for _, node := range nodeList {
+		nodeID := node.NodeID.String()
+
+		// Check if this node is a root node (has no parent or parent is not in our list)
+		isRoot := node.ParentNodeID == nil
+		if !isRoot {
+			parentID := node.ParentNodeID.String()
+			_, parentExists := nodeDataMap[parentID]
+			isRoot = !parentExists
+		}
+
+		if isRoot {
+			visited := make(map[string]bool)
+			rootNode := buildNode(nodeID, visited)
+			rootNodes = append(rootNodes, rootNode)
+		}
+	}
+
+	return rootNodes
+}
+
+func handleBrowseRequest(message *mqttTypes.Publish) {
 	connectionStatus := adapter_library.ConnectionStatus{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Status:    BrowsePending,
@@ -1631,13 +1735,31 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 	var nodeList []NodeDef
 	var wg sync.WaitGroup
 
+	wg.Add(1)
 	go browse(&wg, &nodeList, opcuaClient.Node(id), nil, "", 0, browseReq.LevelLimit, &mqttResp)
 
-	time.Sleep(time.Second)
 	wg.Wait()
 
 	if mqttResp.ConnectionStatus.Status != BrowseFailed {
-		if browseReq.Attributes != nil {
+		useNestedView := browseReq.NestedView
+
+		if useNestedView {
+			nestedResp := NestedBrowseResponseMQTTMessage{
+				ConnectionStatus: connectionStatus,
+			}
+
+			nestedResp.Nodes = buildNestedNodeTree(nodeList)
+
+			nestedResp.ConnectionStatus.Status = BrowseSuccess
+			nestedResp.ConnectionStatus.ErrorMessage = ""
+			nestedResp.ConnectionStatus.Timestamp = time.Now().UTC().Format(time.RFC3339)
+
+			_, pubErr = returnNestedBrowseMessage(&nestedResp, *adapterSettings.UseRelay)
+			if pubErr != nil {
+				log.Printf("[ERROR] Failed to publish nested browse message: %s\n", pubErr.Error())
+			}
+		} else if browseReq.Attributes != nil {
+			// Existing attributes-based response
 			mqttResp := opcuaBrowseResponseWithAttrsMQTTMessage{
 				Nodes:    make([]node, 0),
 				NodeList: browseReq.NodeList,
@@ -1745,6 +1867,7 @@ func handleBrowseRequest(message *mqttTypes.Publish) {
 			}
 
 		} else {
+			// Original flat list of node IDs
 			for _, s := range nodeList {
 				log.Println("[DEBUG] NodeID: " + s.NodeID.String())
 				mqttResp.NodeIDs = append(mqttResp.NodeIDs, s.NodeID.String())
@@ -1797,6 +1920,7 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 	browseReq.LevelLimit = 20 //arbitrary, to stop unreasonable recursion
 
 	var wg sync.WaitGroup
+	// We're using mutex protection inside the browse/browsePath functions
 
 	for _, n := range browseReq.NodeList {
 		log.Printf("[INFO] node in loop to browse: %s", n)
@@ -1815,10 +1939,14 @@ func handleBrowsePathRequest(message *mqttTypes.Publish) {
 
 		splitPath := strings.Split(n.Path, ".")
 
-		go browsePath(&wg, n, opcuaClient.Node(id), nil, 0, browseReq.LevelLimit, &mqttResp, splitPath)
+		// Add to WaitGroup before launching the goroutine
+		wg.Add(1)
+		go func(n Node, id *ua.NodeID, splitPath []string) {
+			browsePath(&wg, n, opcuaClient.Node(id), nil, 0, browseReq.LevelLimit, &mqttResp, splitPath)
+		}(n, id, splitPath)
 	}
 
-	time.Sleep(time.Second)
+	// Remove arbitrary sleep
 	wg.Wait()
 
 	if mqttResp.ConnectionStatus.Status != BrowseFailed {
@@ -1992,6 +2120,8 @@ func publishJson(topic string, data interface{}) {
 }
 
 func getClientHandle() uint32 {
+	clientHandleMutex.Lock()
+	defer clientHandleMutex.Unlock()
 	clientHandle++
 	return clientHandle
 }
@@ -2004,6 +2134,7 @@ func join(a, b string) string {
 }
 
 func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *opcua.Node, path string, level int, levelLimit int, mqttResp *opcuaBrowseResponseMQTTMessage) {
+	defer wg.Done() // Ensure wg.Done() is called when this function returns
 
 	if level > levelLimit {
 		return
@@ -2049,7 +2180,9 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		}
 		log.Printf("[ERROR] Failed to browse nodes: %s, RootId: %s", err.Error(), n.ID.String())
 
+		stateMutex.Lock()
 		opcuaConnected = false
+		stateMutex.Unlock()
 
 		connectionStatus := adapter_library.ConnectionStatus{
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -2076,7 +2209,9 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 		if pubErr != nil {
 			log.Printf("[ERROR] Failed to publish connection message: %s\n", pubErr.Error())
 		}
+		stateMutex.Lock()
 		opcuaConnected = true
+		stateMutex.Unlock()
 
 		return
 	}
@@ -2380,24 +2515,42 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 	def.Path = join(path, def.BrowseName)
 	log.Printf("[DEBUG] %d: def.Path:%s def.NodeClass:%s\n", level, def.Path, def.NodeClass)
 
-	// if def.NodeClass == ua.NodeClassVariable {
+	// Thread-safe append to nodeList using a mutex
+	nodeMutex := &sync.Mutex{}
+	nodeMutex.Lock()
 	*nodeList = append(*nodeList, def)
-	// }
+	nodeMutex.Unlock()
 
 	browseChildren := func(refType uint32) {
-		// defer wg.Done()
+		defer wg.Done() // Ensure the WaitGroup counter is decremented when this function exits
+
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 
 		if err != nil {
 			log.Printf("[ERROR] References: %d: %s", refType, err)
+			return
 		}
+
+		// Create a local WaitGroup to ensure all child goroutines complete before this function returns
+		childWg := &sync.WaitGroup{}
+
 		for _, rn := range refs {
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
 			refNode := opcuaClient.Node(refNodeID)
-			go browse(wg, nodeList, refNode, n, def.Path, level+1, levelLimit, mqttResp)
+
+			// Add to the WaitGroup before launching goroutine
+			childWg.Add(1)
+			wg.Add(1) // Add to parent WaitGroup
+
+			// Launch goroutine with proper WaitGroup tracking
+			go func(refNode *opcua.Node, parentNode *opcua.Node, path string, level int) {
+				browse(wg, nodeList, refNode, parentNode, path, level, levelLimit, mqttResp)
+				childWg.Done()
+			}(refNode, n, def.Path, level+1)
 		}
-		time.Sleep(time.Second)
-		wg.Done()
+
+		// Wait for all child goroutines to complete
+		childWg.Wait()
 	}
 
 	wg.Add(1)
@@ -2409,6 +2562,7 @@ func browse(wg *sync.WaitGroup, nodeList *[]NodeDef, n *opcua.Node, parentNode *
 }
 
 func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode *opcua.Node, level int, levelLimit int, mqttResp *opcuaBrowsePathResponseMQTTMessage, splitPath []string) {
+	defer wg.Done() // Ensure wg.Done is called when this function returns
 
 	if level > levelLimit {
 		return
@@ -2417,6 +2571,8 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 	log.Printf("[DEBUG] node:%s level:%d\n", n, level)
 
 	browseChildren := func(refType uint32) {
+		defer wg.Done() // Ensure the WaitGroup counter is decremented when this function exits
+
 		refs, err := n.ReferencedNodes(refType, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 
 		if err != nil {
@@ -2454,9 +2610,15 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 			}
 			returnErrorMessage(&errorResp, *adapterSettings.UseRelay)
 			token.Wait()
-			time.Sleep(time.Second * 2)
-			log.Fatalf("[FATAL] References: %d: %s", refType, err)
+
+			// Don't crash the entire application from a goroutine
+			log.Printf("[ERROR] References: %d: %s", refType, err)
+			return
 		}
+
+		// Create a local WaitGroup to ensure all child goroutines complete before this function returns
+		childWg := &sync.WaitGroup{}
+		nodeMutex := &sync.Mutex{}
 
 		for _, rn := range refs {
 			refNodeID := ua.MustParseNodeID(rn.ID.String())
@@ -2468,22 +2630,33 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 			}
 
 			if nodeToFilter.NodeName == browseName.Name {
-
 				node := Node{
 					NodeID:   refNodeID.String(),
 					NodeName: browseName.Name,
 					Path:     nodeToFilter.Path,
 				}
 
+				// Thread-safe append to results
+				nodeMutex.Lock()
 				mqttResp.Nodes = append(mqttResp.Nodes, node)
-				wg.Done()
+				nodeMutex.Unlock()
+
 				return
 			}
 
-			go browsePath(wg, nodeToFilter, refNode, n, level+1, levelLimit, mqttResp, splitPath)
+			// Add to the WaitGroup before launching goroutine
+			childWg.Add(1)
+			wg.Add(1) // Add to parent WaitGroup
+
+			// Launch goroutine with proper WaitGroup tracking
+			go func(refNode *opcua.Node, parentNode *opcua.Node, level int) {
+				browsePath(wg, nodeToFilter, refNode, parentNode, level+1, levelLimit, mqttResp, splitPath)
+				childWg.Done()
+			}(refNode, n, level+1)
 		}
-		time.Sleep(time.Second)
-		wg.Done()
+
+		// Wait for all child goroutines to complete
+		childWg.Wait()
 	}
 
 	wg.Add(1)
@@ -2492,4 +2665,18 @@ func browsePath(wg *sync.WaitGroup, nodeToFilter Node, n *opcua.Node, parentNode
 	go browseChildren(id.Organizes)
 	wg.Add(1)
 	go browseChildren(id.HasProperty)
+}
+
+func returnNestedBrowseMessage(resp *NestedBrowseResponseMQTTMessage, useRelay bool) (mqtt.Token, error) {
+	topic := adapterConfig.TopicRoot + "/" + browseTopic + "/nested_response"
+	if useRelay {
+		topic = topic + "/_platform"
+	}
+	log.Printf("[DEBUG] returnNestedBrowseMessage - publishing to topic %s\n", topic)
+	json, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("[ERROR] Failed to stringify JSON: %s\n", err.Error())
+		return nil, err
+	}
+	return adapter_library.PublishStatus(topic, json)
 }
